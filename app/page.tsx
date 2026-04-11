@@ -26,7 +26,7 @@ export default function Home() {
   // 👤 個人タブ用
   const [indGrade, setIndGrade] = useState(GRADES[3]);
   const [indArcher, setIndArcher] = useState("");
-  const [indPracticeType, setIndPracticeType] = useState(PRACTICE_TYPES[2]);
+  const [indPracticeType, setIndPracticeType] = useState(PRACTICE_TYPES[0]);
   const [indRecords, setIndRecords] = useState([{ id: 1, arrows: ["未", "未", "未", "未"] }]);
 
   // 👥 団体タブ用
