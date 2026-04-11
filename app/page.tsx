@@ -405,16 +405,14 @@ export default function Home() {
               <div className="bg-gray-800 p-4 text-white">
                 <h2 className="text-lg font-bold mb-4">📊 {anaArcher} さん</h2>
                 
-                {/* フィルター切り替えエリア（ここを完全復活させました！） */}
+                {/* フィルター切り替えエリア */}
                 <div className="flex flex-col gap-3">
-                  {/* 期間切り替え */}
                   <div className="flex flex-wrap bg-gray-700 rounded-lg p-1 gap-1">
                     {["all", "year", "month", "week", "custom_month"].map(t => (
                       <button key={t} onClick={() => setAnaTimeframe(t as any)} className={`flex-1 min-w-[50px] text-[10px] py-2 rounded-md font-bold transition-all ${anaTimeframe === t ? "bg-blue-500 shadow" : "text-gray-400"}`}>{t === "all" ? "全" : t === "year" ? "年" : t === "month" ? "月" : t === "week" ? "週" : "指定"}</button>
                     ))}
                   </div>
 
-                  {/* 🔥【復活】すべての記録 / 立の記録のみ 切り替えボタン 🔥 */}
                   <div className="flex bg-gray-700 rounded-lg p-1">
                     <button onClick={() => setAnaType("all")} className={`flex-1 text-[10px] sm:text-xs py-2 rounded-md font-bold transition-all ${anaType === "all" ? "bg-green-500 shadow" : "text-gray-400"}`}>すべての記録</button>
                     <button onClick={() => setAnaType("tachi")} className={`flex-1 text-[10px] sm:text-xs py-2 rounded-md font-bold transition-all ${anaType === "tachi" ? "bg-green-500 shadow" : "text-gray-400"}`}>立の記録のみ</button>
@@ -428,13 +426,20 @@ export default function Home() {
                   <p className="text-gray-400 font-bold mt-2">{analysisData.hits} 中 / {analysisData.total} 射</p>
                 </div>
                 
-                {/* 皆中〜残念のブロック */}
-                <div className="grid grid-cols-5 gap-1">
+                {/* 🔥【完全復活】皆中〜残念の綺麗でハッキリとしたブロック 🔥 */}
+                <div className="grid grid-cols-5 gap-1 sm:gap-2">
                   {[
-                    {l: "皆中", v: tachiStats.kaichu, c: "bg-red-50 text-red-600"}, {l: "三中", v: tachiStats.sanchu, c: "bg-orange-50 text-orange-600"},
-                    {l: "二中", v: tachiStats.nichu, c: "bg-green-50 text-green-600"}, {l: "一中", v: tachiStats.itchu, c: "bg-blue-50 text-blue-600"},
-                    {l: "残念", v: tachiStats.zannen, c: "bg-gray-50 text-gray-600"}
-                  ].map(s => <div key={s.l} className={`${s.c} py-2 rounded-xl text-center border border-current opacity-20 border-opacity-10`} style={{borderColor: "rgba(0,0,0,0.1)"}}><p className="text-[10px] font-bold">{s.l}</p><p className="text-sm font-black">{s.v}回</p></div>)}
+                    {l: "皆中", v: tachiStats.kaichu, bg: "bg-red-50", border: "border-red-100", text1: "text-red-400", text2: "text-red-600"},
+                    {l: "三中", v: tachiStats.sanchu, bg: "bg-orange-50", border: "border-orange-100", text1: "text-orange-400", text2: "text-orange-600"},
+                    {l: "二中", v: tachiStats.nichu, bg: "bg-green-50", border: "border-green-100", text1: "text-green-400", text2: "text-green-600"},
+                    {l: "一中", v: tachiStats.itchu, bg: "bg-blue-50", border: "border-blue-100", text1: "text-blue-400", text2: "text-blue-600"},
+                    {l: "残念", v: tachiStats.zannen, bg: "bg-gray-50", border: "border-gray-200", text1: "text-gray-400", text2: "text-gray-600"}
+                  ].map(s => (
+                    <div key={s.l} className={`${s.bg} border ${s.border} py-2 px-1 rounded-xl text-center`}>
+                      <p className={`text-[10px] sm:text-xs font-black ${s.text1} mb-1`}>{s.l}</p>
+                      <p className={`text-sm sm:text-lg font-black ${s.text2}`}>{s.v}<span className="text-[10px] ml-0.5">回</span></p>
+                    </div>
+                  ))}
                 </div>
 
                 {/* 📈 グラフ */}
