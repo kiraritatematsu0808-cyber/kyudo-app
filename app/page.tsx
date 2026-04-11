@@ -32,8 +32,8 @@ export default function Home() {
   const [frontSize, setFrontSize] = useState(3);
   const [backSize, setBackSize] = useState(3);
   const totalSize = frontSize + backSize;
-  const [teamMembers, setTeamMembers] = useState<{ grade: string; name: string }[]>(Array.from({ length: 3 }, () => ({ grade: GRADES[3], name: "" })));
-  const [teamRounds, setTeamRounds] = useState([{ id: 1, arrows: Array.from({ length: 3 }, () => ["未", "未", "未", "未"]) }]);
+  const [teamMembers, setTeamMembers] = useState<{ grade: string; name: string }[]>(Array.from({ length: 6 }, () => ({ grade: GRADES[3], name: "" })));
+  const [teamRounds, setTeamRounds] = useState([{ id: 1, arrows: Array.from({ length: 6 }, () => ["未", "未", "未", "未"]) }]);
 
   // 📊 分析タブ
   const [anaGrade, setAnaGrade] = useState(GRADES[3]);
