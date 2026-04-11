@@ -170,8 +170,16 @@ export default function Home() {
           let roundHits = 0; let isValidRound = 0;
           record.arrows.forEach((arrow: string, i: number) => {
             if (arrow === "○" || arrow === "×") isValidRound++;
-            if (arrow === "○") { hits++; total++; roundHits++; if (i < 4) { newArrowStats[i].hits++; newArrowStats[i].total++; } chartGroups[sortKey].hits++; chartGroups[sortKey].total++; } 
-            else if (arrow === "×") { total++; if (i < 4) { newArrowStats[i].total++; } chartGroups[sortKey].total++; }
+            if (arrow === "○") { 
+              hits++; total++; roundHits++; 
+              if (i < 4) { newArrowStats[i].hits++; newArrowStats[i].total++; } 
+              chartGroups[sortKey].hits++; chartGroups[sortKey].total++; 
+            } 
+            else if (arrow === "×") { 
+              total++; 
+              if (i < 4) { newArrowStats[i].total++; } 
+              chartGroups[sortKey].total++; 
+            }
           });
           if (isValidRound === 4) {
             if (roundHits === 4) kaichu++; else if (roundHits === 3) sanchu++; else if (roundHits === 2) nichu++; else if (roundHits === 1) itchu++; else if (roundHits === 0) zannen++;
@@ -183,7 +191,6 @@ export default function Home() {
     } catch (error) { console.error(error); } finally { setIsLoadingAnalysis(false); }
   };
 
-  // 🏆 ランキングデータの計算 (🔥バグ修正版！)
   const fetchRankingData = async () => {
     const { data, error } = await supabase.from("practice_sessions").select("*");
     if (error || !data) return;
@@ -194,12 +201,9 @@ export default function Home() {
       if (!stats[s.archer_name]) stats[s.archer_name] = { name: s.archer_name, hits: 0, total: 0, tachiHits: 0, tachiTotal: 0 };
       s.records.forEach((r: any) => {
         r.arrows.forEach((a: string) => {
-          // ▼ 修正ポイント: ○でも×でも「合計矢数」には必ず1を足す！
           if (a === "○" || a === "×") {
             stats[s.archer_name].total++;
             if (s.practice_type === "立") stats[s.archer_name].tachiTotal++;
-            
-            // 当たりの時だけ「的中数」に足す
             if (a === "○") {
               stats[s.archer_name].hits++;
               if (s.practice_type === "立") stats[s.archer_name].tachiHits++;
@@ -212,7 +216,6 @@ export default function Home() {
     const members = Object.values(stats);
     if (members.length === 0) return;
 
-    // 幽霊部員を除外
     const activeMembers = members.filter(m => m.total > 0);
     if (activeMembers.length === 0) {
       setRankings({ hitRate: [], totalArrows: [], totalHits: [], tachiRate: [] });
@@ -235,7 +238,6 @@ export default function Home() {
       .map(m => ({ ...m, value: m.hits }))
       .sort((a, b) => b.value - a.value).slice(0, 5);
 
-    // 修正されたデータで立的中率を計算！
     const tachiRate = members
       .filter(m => m.total >= threshold && m.tachiTotal > 0)
       .map(m => ({ ...m, value: Math.round((m.tachiHits / m.tachiTotal) * 100) }))
@@ -257,6 +259,7 @@ export default function Home() {
         ))}
       </div>
 
+      {/* ========== 個人タブ ========== */}
       {activeTab === "individual" && (
         <div className="animate-fade-in">
           <div className="mb-6 p-5 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-4">
@@ -307,6 +310,7 @@ export default function Home() {
         </div>
       )}
 
+      {/* ========== 団体タブ ========== */}
       {activeTab === "team" && (
         <div className="animate-fade-in">
           <div className="mb-6 p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
@@ -377,7 +381,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 📊 分析タブ */}
+      {/* ========== 📊 分析タブ ========== */}
       {activeTab === "analysis" && (
         <div className="animate-fade-in space-y-6">
           <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex gap-3">
@@ -395,21 +399,36 @@ export default function Home() {
               </select>
             </div>
           </div>
+          
           {anaArcher && (
             <div className="bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden">
               <div className="bg-gray-800 p-4 text-white">
                 <h2 className="text-lg font-bold mb-4">📊 {anaArcher} さん</h2>
-                <div className="flex flex-wrap bg-gray-700 rounded-lg p-1 gap-1">
-                  {["all", "year", "month", "week", "custom_month"].map(t => (
-                    <button key={t} onClick={() => setAnaTimeframe(t as any)} className={`flex-1 min-w-[50px] text-[10px] py-2 rounded-md font-bold transition-all ${anaTimeframe === t ? "bg-blue-500 shadow" : "text-gray-400"}`}>{t === "all" ? "全" : t === "year" ? "年" : t === "month" ? "月" : t === "week" ? "週" : "指定"}</button>
-                  ))}
+                
+                {/* フィルター切り替えエリア（ここを完全復活させました！） */}
+                <div className="flex flex-col gap-3">
+                  {/* 期間切り替え */}
+                  <div className="flex flex-wrap bg-gray-700 rounded-lg p-1 gap-1">
+                    {["all", "year", "month", "week", "custom_month"].map(t => (
+                      <button key={t} onClick={() => setAnaTimeframe(t as any)} className={`flex-1 min-w-[50px] text-[10px] py-2 rounded-md font-bold transition-all ${anaTimeframe === t ? "bg-blue-500 shadow" : "text-gray-400"}`}>{t === "all" ? "全" : t === "year" ? "年" : t === "month" ? "月" : t === "week" ? "週" : "指定"}</button>
+                    ))}
+                  </div>
+
+                  {/* 🔥【復活】すべての記録 / 立の記録のみ 切り替えボタン 🔥 */}
+                  <div className="flex bg-gray-700 rounded-lg p-1">
+                    <button onClick={() => setAnaType("all")} className={`flex-1 text-[10px] sm:text-xs py-2 rounded-md font-bold transition-all ${anaType === "all" ? "bg-green-500 shadow" : "text-gray-400"}`}>すべての記録</button>
+                    <button onClick={() => setAnaType("tachi")} className={`flex-1 text-[10px] sm:text-xs py-2 rounded-md font-bold transition-all ${anaType === "tachi" ? "bg-green-500 shadow" : "text-gray-400"}`}>立の記録のみ</button>
+                  </div>
                 </div>
+
               </div>
               <div className="p-5 space-y-8">
                 <div className="text-center">
                   <p className="text-[60px] font-black text-blue-600 leading-none">{((analysisData.hits / analysisData.total) * 100).toFixed(1)}<span className="text-xl ml-1">%</span></p>
                   <p className="text-gray-400 font-bold mt-2">{analysisData.hits} 中 / {analysisData.total} 射</p>
                 </div>
+                
+                {/* 皆中〜残念のブロック */}
                 <div className="grid grid-cols-5 gap-1">
                   {[
                     {l: "皆中", v: tachiStats.kaichu, c: "bg-red-50 text-red-600"}, {l: "三中", v: tachiStats.sanchu, c: "bg-orange-50 text-orange-600"},
@@ -417,16 +436,37 @@ export default function Home() {
                     {l: "残念", v: tachiStats.zannen, c: "bg-gray-50 text-gray-600"}
                   ].map(s => <div key={s.l} className={`${s.c} py-2 rounded-xl text-center border border-current opacity-20 border-opacity-10`} style={{borderColor: "rgba(0,0,0,0.1)"}}><p className="text-[10px] font-bold">{s.l}</p><p className="text-sm font-black">{s.v}回</p></div>)}
                 </div>
+
+                {/* 📈 グラフ */}
                 {chartData.length > 0 && (
                   <div className="h-40 w-full"><ResponsiveContainer><LineChart data={chartData}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" hide /><YAxis domain={[0, 100]} hide /><Tooltip /><Line type="monotone" dataKey="的中率(%)" stroke="#3b82f6" strokeWidth={3} dot={false} /></LineChart></ResponsiveContainer></div>
                 )}
+
+                {/* 矢ごとの詳細データ */}
+                <div>
+                  <h3 className="text-sm font-bold text-gray-700 border-b border-gray-200 pb-2 mb-4">🏹 立の詳細（矢ごとの的中率）</h3>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {arrowStats.map((stat, index) => {
+                      const rate = stat.total > 0 ? ((stat.hits / stat.total) * 100).toFixed(1) : "0.0";
+                      return (
+                        <div key={index} className="bg-white border-2 border-gray-100 p-3 rounded-xl text-center relative overflow-hidden shadow-sm">
+                          <div className="absolute bottom-0 left-0 h-1 bg-blue-500 transition-all duration-1000" style={{ width: `${rate}%` }}></div>
+                          <p className="text-[10px] font-black text-gray-400 mb-1">{index + 1}本目</p>
+                          <p className="text-xl font-black text-gray-800">{rate}<span className="text-xs ml-0.5">%</span></p>
+                          <p className="text-[10px] text-gray-400 mt-1">{stat.hits}/{stat.total}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* 🏆 ランキングタブ */}
+      {/* ========== 🏆 ランキングタブ ========== */}
       {activeTab === "rankings" && (
         <div className="animate-fade-in space-y-6">
           <p className="text-[10px] text-gray-400 text-center font-bold">※的中率は「本当に練習している人の平均矢数」の半分以上を引いている人のみ表示</p>
@@ -456,7 +496,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 📖 名簿タブ */}
+      {/* ========== 📖 名簿タブ ========== */}
       {activeTab === "members" && (
         <div className="animate-fade-in space-y-6">
           <div className="bg-white p-6 rounded-3xl border border-gray-200">
@@ -472,7 +512,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 📅 予定表タブ */}
+      {/* ========== 📅 予定表タブ ========== */}
       {activeTab === "schedule" && (
         <div className="animate-fade-in space-y-6">
           <div className="bg-white p-6 rounded-3xl border border-gray-200">
