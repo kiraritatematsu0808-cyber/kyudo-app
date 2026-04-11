@@ -183,7 +183,7 @@ export default function Home() {
     } catch (error) { console.error(error); } finally { setIsLoadingAnalysis(false); }
   };
 
-  // 🏆 ランキングデータの計算
+  // 🏆 ランキングデータの計算 (🔥バグ修正版！)
   const fetchRankingData = async () => {
     const { data, error } = await supabase.from("practice_sessions").select("*");
     if (error || !data) return;
@@ -194,12 +194,16 @@ export default function Home() {
       if (!stats[s.archer_name]) stats[s.archer_name] = { name: s.archer_name, hits: 0, total: 0, tachiHits: 0, tachiTotal: 0 };
       s.records.forEach((r: any) => {
         r.arrows.forEach((a: string) => {
-          if (a === "○") { 
-            stats[s.archer_name].hits++; stats[s.archer_name].total++; 
-            if (s.practice_type === "立") stats[s.archer_name].tachiHits++;
-          } else if (a === "×") {
+          // ▼ 修正ポイント: ○でも×でも「合計矢数」には必ず1を足す！
+          if (a === "○" || a === "×") {
             stats[s.archer_name].total++;
             if (s.practice_type === "立") stats[s.archer_name].tachiTotal++;
+            
+            // 当たりの時だけ「的中数」に足す
+            if (a === "○") {
+              stats[s.archer_name].hits++;
+              if (s.practice_type === "立") stats[s.archer_name].tachiHits++;
+            }
           }
         });
       });
@@ -208,36 +212,30 @@ export default function Home() {
     const members = Object.values(stats);
     if (members.length === 0) return;
 
-    // 🔥 修正ポイント：矢数が0の「幽霊部員」を平均計算から完全に除外！
+    // 幽霊部員を除外
     const activeMembers = members.filter(m => m.total > 0);
-    
-    // 全員矢数0の場合はランキングを作らない
     if (activeMembers.length === 0) {
       setRankings({ hitRate: [], totalArrows: [], totalHits: [], tachiRate: [] });
       return;
     }
 
-    // 本当に練習している人たちの平均矢数を計算
     const avgArrows = activeMembers.reduce((sum, m) => sum + m.total, 0) / activeMembers.length;
     const threshold = avgArrows / 2;
 
-    // 1. 的中率 (フィルターあり)
     const hitRate = members
       .filter(m => m.total >= threshold)
       .map(m => ({ ...m, value: Math.round((m.hits / m.total) * 100) }))
       .sort((a, b) => b.value - a.value).slice(0, 5);
 
-    // 2. 矢数 (全員対象)
     const totalArrows = members
       .map(m => ({ ...m, value: m.total }))
       .sort((a, b) => b.value - a.value).slice(0, 5);
 
-    // 3. 的中数 (全員対象)
     const totalHits = members
       .map(m => ({ ...m, value: m.hits }))
       .sort((a, b) => b.value - a.value).slice(0, 5);
 
-    // 4. 立的中率 (フィルターあり)
+    // 修正されたデータで立的中率を計算！
     const tachiRate = members
       .filter(m => m.total >= threshold && m.tachiTotal > 0)
       .map(m => ({ ...m, value: Math.round((m.tachiHits / m.tachiTotal) * 100) }))
