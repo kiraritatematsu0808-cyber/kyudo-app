@@ -30,7 +30,7 @@ export default function Home() {
 
   // 👥 団体タブ
   const [frontSize, setFrontSize] = useState(3);
-  const [backSize, setBackSize] = useState(0);
+  const [backSize, setBackSize] = useState(3);
   const totalSize = frontSize + backSize;
   const [teamMembers, setTeamMembers] = useState<{ grade: string; name: string }[]>(Array.from({ length: 3 }, () => ({ grade: GRADES[3], name: "" })));
   const [teamRounds, setTeamRounds] = useState([{ id: 1, arrows: Array.from({ length: 3 }, () => ["未", "未", "未", "未"]) }]);
