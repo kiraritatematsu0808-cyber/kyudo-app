@@ -294,7 +294,8 @@ export default function Home() {
                 <p className="text-center text-gray-400 text-xs font-black mb-4">{rIndex + 1}立目</p>
                 <div className="flex justify-center gap-4">
                   {record.arrows.map((state, aIndex) => (
-                    <button key={aIndex} onClick={() => toggleIndArrow(rIndex, aIndex)} className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full text-3xl font-bold transition-all border-4 ${state === "○" ? "bg-red-500 text-white border-red-200" : state === "×" ? "bg-blue-500 text-white border-blue-200" : "bg-gray-100 text-gray-300 border-gray-200"}`}>{state}</button>
+                    // 🔥ここを修正！ `flex items-center justify-center` を追加してド真ん中に固定！
+                    <button key={aIndex} onClick={() => toggleIndArrow(rIndex, aIndex)} className={`flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full text-3xl font-bold transition-all border-4 ${state === "○" ? "bg-red-500 text-white border-red-200" : state === "×" ? "bg-blue-500 text-white border-blue-200" : "bg-gray-100 text-gray-300 border-gray-200"}`}>{state}</button>
                   ))}
                 </div>
               </div>
@@ -363,7 +364,8 @@ export default function Home() {
                         <div className="w-12"><span className="font-bold text-gray-700 text-[10px] truncate block">{teamMembers[mIndex]?.name || "未選択"}</span></div>
                         <div className="flex gap-1.5 flex-1 justify-end">
                           {personArrows.map((state, aIndex) => (
-                            <button key={aIndex} onClick={() => toggleTeamArrow(rIndex, mIndex, aIndex)} className={`w-10 h-10 rounded-full text-lg font-bold transition-all border-2 ${state === "○" ? "bg-red-500 text-white border-red-100" : state === "×" ? "bg-blue-500 text-white border-blue-100" : "bg-gray-100 text-gray-300 border-gray-100"}`}>{state}</button>
+                            // 🔥ここも修正！ 団体タブのボタンもド真ん中に固定！
+                            <button key={aIndex} onClick={() => toggleTeamArrow(rIndex, mIndex, aIndex)} className={`flex items-center justify-center w-10 h-10 rounded-full text-lg font-bold transition-all border-2 ${state === "○" ? "bg-red-500 text-white border-red-100" : state === "×" ? "bg-blue-500 text-white border-blue-100" : "bg-gray-100 text-gray-300 border-gray-100"}`}>{state}</button>
                           ))}
                         </div>
                       </div>
@@ -405,7 +407,6 @@ export default function Home() {
               <div className="bg-gray-800 p-4 text-white">
                 <h2 className="text-lg font-bold mb-4">📊 {anaArcher} さん</h2>
                 
-                {/* フィルター切り替えエリア */}
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-wrap bg-gray-700 rounded-lg p-1 gap-1">
                     {["all", "year", "month", "week", "custom_month"].map(t => (
@@ -426,7 +427,6 @@ export default function Home() {
                   <p className="text-gray-400 font-bold mt-2">{analysisData.hits} 中 / {analysisData.total} 射</p>
                 </div>
                 
-                {/* 🔥【完全復活】皆中〜残念の綺麗でハッキリとしたブロック 🔥 */}
                 <div className="grid grid-cols-5 gap-1 sm:gap-2">
                   {[
                     {l: "皆中", v: tachiStats.kaichu, bg: "bg-red-50", border: "border-red-100", text1: "text-red-400", text2: "text-red-600"},
@@ -442,12 +442,10 @@ export default function Home() {
                   ))}
                 </div>
 
-                {/* 📈 グラフ */}
                 {chartData.length > 0 && (
                   <div className="h-40 w-full"><ResponsiveContainer><LineChart data={chartData}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" hide /><YAxis domain={[0, 100]} hide /><Tooltip /><Line type="monotone" dataKey="的中率(%)" stroke="#3b82f6" strokeWidth={3} dot={false} /></LineChart></ResponsiveContainer></div>
                 )}
 
-                {/* 矢ごとの詳細データ */}
                 <div>
                   <h3 className="text-sm font-bold text-gray-700 border-b border-gray-200 pb-2 mb-4">🏹 立の詳細（矢ごとの的中率）</h3>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
