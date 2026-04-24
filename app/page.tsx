@@ -6,7 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 
 const GRADES = ["中1", "中2", "中3", "高1", "高2", "高3", "OB/OG", "先生"];
 const PRACTICE_TYPES = ["自練", "射込み", "立"];
-const SECRET_PASSWORD = "1234"; // 👈 ここを好きなパスワードに変更できます！
+const SECRET_PASSWORD = "1234"; // 👈 パスワードはここで一括管理！
 
 const getPositionName = (index: number, total: number) => {
   if (total === 1) return "大前";
@@ -14,7 +14,7 @@ const getPositionName = (index: number, total: number) => {
   if (index === total - 1) return "落";
   if (total === 3 && index === 1) return "中";
   if (index === total - 2) return "落前";
-  return ["二的", "三的な", "四的", "五的"][index - 1] || `${index + 1}番`;
+  return ["二的", "三的", "四的", "五的"][index - 1] || `${index + 1}番`;
 };
 
 export default function Home() {
@@ -48,13 +48,15 @@ export default function Home() {
   const [chartData, setChartData] = useState<{ date: string; "的中率(%)": number }[]>([]);
   const [tachiStats, setTachiStats] = useState({ kaichu: 0, sanchu: 0, nichu: 0, itchu: 0, zannen: 0 });
 
-  // 🏆 ランキング用
+  // 🏆 ランキング用（TOP5 ＆ 今月の全員分）
   const [rankings, setRankings] = useState<{ hitRate: any[], totalArrows: any[], totalHits: any[], tachiRate: any[] }>({ hitRate: [], totalArrows: [], totalHits: [], tachiRate: [] });
+  const [monthlyRankings, setMonthlyRankings] = useState<{ hitRate: any[], totalArrows: any[], totalHits: any[], tachiRate: any[] }>({ hitRate: [], totalArrows: [], totalHits: [], tachiRate: [] });
   
-  // 🔐 月的表ロック用
+  // 🔐 ロック機能用ステート
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [passInput, setPassInput] = useState("");
-  const [monthlyTableData, setMonthlyTableData] = useState<any[]>([]);
+  const [isMembersUnlocked, setIsMembersUnlocked] = useState(false);
+  const [membersPassInput, setMembersPassInput] = useState("");
 
   // 📖 名簿タブ
   const [newArcherName, setNewArcherName] = useState("");
@@ -196,8 +198,10 @@ export default function Home() {
     const { data, error } = await supabase.from("practice_sessions").select("*");
     if (error || !data) return;
 
+    // 全期間のデータ
     const stats: { [name: string]: { name: string, hits: number, total: number, tachiHits: number, tachiTotal: number } } = {};
-    const monthlyStats: { [name: string]: { name: string, hits: number, total: number } } = {};
+    // 今月のみのデータ
+    const monthlyStats: { [name: string]: { name: string, hits: number, total: number, tachiHits: number, tachiTotal: number } } = {};
     const now = new Date();
 
     data.forEach(s => {
@@ -205,46 +209,71 @@ export default function Home() {
       const isThisMonth = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
 
       if (!stats[s.archer_name]) stats[s.archer_name] = { name: s.archer_name, hits: 0, total: 0, tachiHits: 0, tachiTotal: 0 };
-      if (!monthlyStats[s.archer_name]) monthlyStats[s.archer_name] = { name: s.archer_name, hits: 0, total: 0 };
+      if (!monthlyStats[s.archer_name]) monthlyStats[s.archer_name] = { name: s.archer_name, hits: 0, total: 0, tachiHits: 0, tachiTotal: 0 };
 
       s.records.forEach((r: any) => {
         r.arrows.forEach((a: string) => {
           if (a === "○" || a === "×") {
             stats[s.archer_name].total++;
-            if (isThisMonth) monthlyStats[s.archer_name].total++;
             if (s.practice_type === "立") stats[s.archer_name].tachiTotal++;
+            
+            if (isThisMonth) {
+              monthlyStats[s.archer_name].total++;
+              if (s.practice_type === "立") monthlyStats[s.archer_name].tachiTotal++;
+            }
+
             if (a === "○") {
               stats[s.archer_name].hits++;
-              if (isThisMonth) monthlyStats[s.archer_name].hits++;
               if (s.practice_type === "立") stats[s.archer_name].tachiHits++;
+              
+              if (isThisMonth) {
+                monthlyStats[s.archer_name].hits++;
+                if (s.practice_type === "立") monthlyStats[s.archer_name].tachiHits++;
+              }
             }
           }
         });
       });
     });
 
-    const members = Object.values(stats);
-    if (members.length === 0) return;
+    // --- 全期間のTOP5計算 ---
+    const members = Object.values(stats).filter(m => m.total > 0);
+    if (members.length > 0) {
+      const avgArrows = members.reduce((sum, m) => sum + m.total, 0) / members.length;
+      const threshold = avgArrows / 2;
 
-    const activeMembers = members.filter(m => m.total > 0);
-    if (activeMembers.length === 0) return;
+      setRankings({
+        hitRate: members.filter(m => m.total >= threshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value).slice(0,5),
+        totalArrows: members.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value).slice(0,5),
+        totalHits: members.map(m => ({ ...m, value: m.hits })).sort((a,b)=>b.value-a.value).slice(0,5),
+        tachiRate: members.filter(m => m.total >= threshold && m.tachiTotal > 0).map(m => ({ ...m, value: Math.round((m.tachiHits/m.tachiTotal)*100) })).sort((a,b)=>b.value-a.value).slice(0,5)
+      });
+    }
 
-    const avgArrows = activeMembers.reduce((sum, m) => sum + m.total, 0) / activeMembers.length;
-    const threshold = avgArrows / 2;
+    // --- 今月の全員分計算 ---
+    const monthlyMembers = Object.values(monthlyStats).filter(m => m.total > 0);
+    if (monthlyMembers.length > 0) {
+      const monthlyAvg = monthlyMembers.reduce((sum, m) => sum + m.total, 0) / monthlyMembers.length;
+      const mThreshold = monthlyAvg / 2;
 
-    setRankings({
-      hitRate: members.filter(m => m.total >= threshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value).slice(0,5),
-      totalArrows: members.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value).slice(0,5),
-      totalHits: members.map(m => ({ ...m, value: m.hits })).sort((a,b)=>b.value-a.value).slice(0,5),
-      tachiRate: members.filter(m => m.total >= threshold && m.tachiTotal > 0).map(m => ({ ...m, value: Math.round((m.tachiHits/m.tachiTotal)*100) })).sort((a,b)=>b.value-a.value).slice(0,5)
-    });
-
-    // 月的表用データ（全件）
-    setMonthlyTableData(Object.values(monthlyStats).sort((a,b) => b.hits - a.hits));
+      setMonthlyRankings({
+        // slice(0,5) を外して全員表示！
+        hitRate: monthlyMembers.filter(m => m.total >= mThreshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value),
+        totalArrows: monthlyMembers.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value),
+        totalHits: monthlyMembers.map(m => ({ ...m, value: m.hits })).sort((a,b)=>b.value-a.value),
+        tachiRate: monthlyMembers.filter(m => m.total >= mThreshold && m.tachiTotal > 0).map(m => ({ ...m, value: Math.round((m.tachiHits/m.tachiTotal)*100) })).sort((a,b)=>b.value-a.value)
+      });
+    }
   };
 
-  const handleUnlock = () => {
-    if (passInput === SECRET_PASSWORD) { setIsUnlocked(true); } else { alert("パスワードが違います！"); }
+  const handleRankUnlock = () => {
+    if (passInput === SECRET_PASSWORD) { setIsUnlocked(true); setPassInput(""); } 
+    else { alert("パスワードが違います！"); }
+  };
+
+  const handleMembersUnlock = () => {
+    if (membersPassInput === SECRET_PASSWORD) { setIsMembersUnlocked(true); setMembersPassInput(""); } 
+    else { alert("パスワードが違います！"); }
   };
 
   return (
@@ -380,7 +409,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* ========== 📊 分析タブ ========== */}
       {activeTab === "analysis" && (
         <div className="animate-fade-in space-y-6">
           <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex gap-3">
@@ -461,92 +489,115 @@ export default function Home() {
       {/* ========== 🏆 ランキングタブ ========== */}
       {activeTab === "rankings" && (
         <div className="animate-fade-in space-y-8">
-          <p className="text-[10px] text-gray-400 text-center font-bold">※的中率は「本当に練習している人の平均矢数」の半分以上を引いている人のみ表示</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {[
-              {title: "🎯 的中率 (TOP5)", data: rankings.hitRate, unit: "%", color: "text-red-500"},
-              {title: "🔥 矢数 (TOP5)", data: rankings.totalArrows, unit: "射", color: "text-blue-500"},
-              {title: "🌟 的中数 (TOP5)", data: rankings.totalHits, unit: "中", color: "text-green-500"},
-              {title: "🥋 立的中率 (TOP5)", data: rankings.tachiRate, unit: "%", color: "text-purple-500"}
-            ].map(r => (
-              <div key={r.title} className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm">
-                <h3 className="text-xs font-black text-gray-400 mb-4 border-b pb-2">{r.title}</h3>
-                <div className="space-y-3">
-                  {r.data.length > 0 ? r.data.map((m, i) => (
-                    <div key={m.name} className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-black ${i === 0 ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-400"}`}>{i+1}</span>
-                        <span className="text-sm font-bold text-gray-700">{m.name}</span>
+          
+          {/* 上半分：全期間のTOP5 */}
+          <div className="space-y-4">
+            <h2 className="text-lg font-bold text-gray-800 text-center border-b pb-2">👑 全期間ランキング (TOP5)</h2>
+            <p className="text-[10px] text-gray-400 text-center font-bold mb-4">※的中率は「本当に練習している人の平均矢数」の半分以上を引いている人のみ</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {[
+                {title: "🎯 的中率", data: rankings.hitRate, unit: "%", color: "text-red-500"},
+                {title: "🔥 矢数", data: rankings.totalArrows, unit: "射", color: "text-blue-500"},
+                {title: "🌟 的中数", data: rankings.totalHits, unit: "中", color: "text-green-500"},
+                {title: "🥋 立的中率", data: rankings.tachiRate, unit: "%", color: "text-purple-500"}
+              ].map(r => (
+                <div key={r.title} className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm">
+                  <h3 className="text-xs font-black text-gray-400 mb-4 border-b pb-2">{r.title}</h3>
+                  <div className="space-y-3">
+                    {r.data.length > 0 ? r.data.map((m, i) => (
+                      <div key={m.name} className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-black ${i === 0 ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-400"}`}>{i+1}</span>
+                          <span className="text-sm font-bold text-gray-700">{m.name}</span>
+                        </div>
+                        <span className={`text-sm font-black ${r.color}`}>{m.value}{r.unit}</span>
                       </div>
-                      <span className={`text-sm font-black ${r.color}`}>{m.value}{r.unit}</span>
-                    </div>
-                  )) : <p className="text-[10px] text-gray-300 py-4 text-center">データがありません</p>}
+                    )) : <p className="text-[10px] text-gray-300 py-4 text-center">データがありません</p>}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
 
-          {/* 🔐 月的表セクション */}
-          <div className="mt-12 pt-8 border-t border-gray-200">
+          {/* 下半分：🔐 月的表（4項目全員分）セクション */}
+          <div className="mt-12 pt-8 border-t-2 border-dashed border-gray-200">
             {!isUnlocked ? (
               <div className="bg-white p-6 rounded-3xl border border-dashed border-gray-300 text-center">
-                <h3 className="text-sm font-bold text-gray-400 mb-4">🔐 全員分の月的表 (管理者用)</h3>
+                <h3 className="text-sm font-bold text-gray-500 mb-4">🔐 今月の全順位（月的表） - 管理者用</h3>
                 <div className="flex gap-2 max-w-xs mx-auto">
                   <input type="password" placeholder="パスワード" value={passInput} onChange={(e)=>setPassInput(e.target.value)} className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none" />
-                  <button onClick={handleUnlock} className="bg-gray-800 text-white px-5 py-3 rounded-xl text-sm font-bold active:scale-95 transition-all">解除</button>
+                  <button onClick={handleRankUnlock} className="bg-gray-800 text-white px-5 py-3 rounded-xl text-sm font-bold active:scale-95 transition-all">解除</button>
                 </div>
               </div>
             ) : (
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200 animate-fade-in">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="font-black text-gray-700 text-lg">📅 今月の全全部員データ</h3>
-                  <button onClick={() => setIsUnlocked(false)} className="text-[10px] text-gray-400 font-bold border border-gray-200 px-3 py-1 rounded-full">ロックする</button>
+              <div className="animate-fade-in space-y-4">
+                <div className="flex justify-between items-center bg-gray-800 p-4 rounded-2xl text-white mb-6">
+                  <h2 className="text-lg font-bold">📅 今月の全順位（月的表）</h2>
+                  <button onClick={() => setIsUnlocked(false)} className="text-[10px] bg-gray-600 hover:bg-gray-500 font-bold px-3 py-1.5 rounded-full transition-all">ロックする</button>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="border-b border-gray-100">
-                        <th className="py-3 text-[10px] font-black text-gray-400 uppercase">名前</th>
-                        <th className="py-3 text-[10px] font-black text-gray-400 uppercase text-center">的中</th>
-                        <th className="py-3 text-[10px] font-black text-gray-400 uppercase text-center">矢数</th>
-                        <th className="py-3 text-[10px] font-black text-gray-400 uppercase text-right">的中率</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {monthlyTableData.map((m) => (
-                        <tr key={m.name} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
-                          <td className="py-4 text-sm font-bold text-gray-700">{m.name}</td>
-                          <td className="py-4 text-sm font-black text-blue-600 text-center">{m.hits}</td>
-                          <td className="py-4 text-sm text-gray-400 text-center">{m.total}</td>
-                          <td className="py-4 text-sm font-black text-gray-800 text-right">
-                            {m.total > 0 ? Math.round((m.hits/m.total)*100) : 0}%
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                
+                {/* 4つの項目で全員分表示（スクロール領域つき） */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {[
+                    {title: "🎯 今月の的中率", data: monthlyRankings.hitRate, unit: "%", color: "text-red-500"},
+                    {title: "🔥 今月の矢数", data: monthlyRankings.totalArrows, unit: "射", color: "text-blue-500"},
+                    {title: "🌟 今月の的中数", data: monthlyRankings.totalHits, unit: "中", color: "text-green-500"},
+                    {title: "🥋 今月の立的中率", data: monthlyRankings.tachiRate, unit: "%", color: "text-purple-500"}
+                  ].map(r => (
+                    <div key={r.title} className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm flex flex-col max-h-96">
+                      <h3 className="text-xs font-black text-gray-500 mb-4 border-b pb-2 sticky top-0 bg-white z-10">{r.title} <span className="font-normal text-[10px]">({r.data.length}人)</span></h3>
+                      <div className="space-y-3 overflow-y-auto flex-1 pr-2">
+                        {r.data.length > 0 ? r.data.map((m, i) => (
+                          <div key={m.name} className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-black ${i === 0 ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-400"}`}>{i+1}</span>
+                              <span className="text-sm font-bold text-gray-700">{m.name}</span>
+                            </div>
+                            <span className={`text-sm font-black ${r.color}`}>{m.value}{r.unit}</span>
+                          </div>
+                        )) : <p className="text-[10px] text-gray-300 py-4 text-center">今月のデータはありません</p>}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
           </div>
+
         </div>
       )}
 
+      {/* ========== 📖 名簿タブ（🔐 パスワードロック追加） ========== */}
       {activeTab === "members" && (
         <div className="animate-fade-in space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-gray-200">
-            <h2 className="text-xl font-bold mb-4 text-gray-800">👤 メンバー登録</h2>
-            <div className="space-y-4">
-              <select value={newArcherGrade} onChange={(e) => setNewArcherGrade(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-blue-600 outline-none">
-                {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
-              <input type="text" placeholder="名前" value={newArcherName} onChange={(e) => setNewArcherName(e.target.value)} className="w-full p-4 border border-gray-200 bg-gray-50 rounded-xl outline-none" />
-              <button onClick={handleAddArcher} className="w-full py-4 bg-blue-500 text-white font-bold rounded-xl active:scale-95">名簿に登録</button>
+          {!isMembersUnlocked ? (
+            <div className="bg-white p-8 rounded-3xl border border-dashed border-gray-300 text-center mt-4">
+              <h2 className="text-lg font-bold text-gray-700 mb-2">👤 メンバー登録 (管理者用)</h2>
+              <p className="text-[10px] text-gray-400 mb-6 font-bold">勝手な追加を防ぐためロックされています</p>
+              <div className="flex gap-2 max-w-xs mx-auto">
+                <input type="password" placeholder="パスワード" value={membersPassInput} onChange={(e)=>setMembersPassInput(e.target.value)} className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none" />
+                <button onClick={handleMembersUnlock} className="bg-gray-800 text-white px-5 py-3 rounded-xl text-sm font-bold active:scale-95 transition-all">解除</button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-white p-6 rounded-3xl border border-gray-200">
+              <div className="flex justify-between items-center mb-6 border-b border-gray-100 pb-4">
+                <h2 className="text-xl font-bold text-gray-800">👤 メンバー登録</h2>
+                <button onClick={() => setIsMembersUnlocked(false)} className="text-[10px] text-gray-400 font-bold border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50">ロックする</button>
+              </div>
+              <div className="space-y-4">
+                <select value={newArcherGrade} onChange={(e) => setNewArcherGrade(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-blue-600 outline-none">
+                  {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
+                <input type="text" placeholder="名前" value={newArcherName} onChange={(e) => setNewArcherName(e.target.value)} className="w-full p-4 border border-gray-200 bg-gray-50 rounded-xl outline-none" />
+                <button onClick={handleAddArcher} className="w-full py-4 bg-blue-500 text-white font-bold rounded-xl active:scale-95 transition-transform">名簿に登録</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
+      {/* ========== 📅 予定表タブ ========== */}
       {activeTab === "schedule" && (
         <div className="animate-fade-in space-y-6">
           <div className="bg-white p-6 rounded-3xl border border-gray-200">
