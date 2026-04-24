@@ -6,6 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 
 const GRADES = ["中1", "中2", "中3", "高1", "高2", "高3", "OB/OG", "先生"];
 const PRACTICE_TYPES = ["自練", "射込み", "立"];
+const SECRET_PASSWORD = "1234"; // 👈 ここを好きなパスワードに変更できます！
 
 const getPositionName = (index: number, total: number) => {
   if (total === 1) return "大前";
@@ -13,7 +14,7 @@ const getPositionName = (index: number, total: number) => {
   if (index === total - 1) return "落";
   if (total === 3 && index === 1) return "中";
   if (index === total - 2) return "落前";
-  return ["二的", "三的", "四的", "五的"][index - 1] || `${index + 1}番`;
+  return ["二的", "三的な", "四的", "五的"][index - 1] || `${index + 1}番`;
 };
 
 export default function Home() {
@@ -47,13 +48,13 @@ export default function Home() {
   const [chartData, setChartData] = useState<{ date: string; "的中率(%)": number }[]>([]);
   const [tachiStats, setTachiStats] = useState({ kaichu: 0, sanchu: 0, nichu: 0, itchu: 0, zannen: 0 });
 
-  // 🏆 ランキング用ステート
-  const [rankings, setRankings] = useState<{
-    hitRate: any[],
-    totalArrows: any[],
-    totalHits: any[],
-    tachiRate: any[]
-  }>({ hitRate: [], totalArrows: [], totalHits: [], tachiRate: [] });
+  // 🏆 ランキング用
+  const [rankings, setRankings] = useState<{ hitRate: any[], totalArrows: any[], totalHits: any[], tachiRate: any[] }>({ hitRate: [], totalArrows: [], totalHits: [], tachiRate: [] });
+  
+  // 🔐 月的表ロック用
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [passInput, setPassInput] = useState("");
+  const [monthlyTableData, setMonthlyTableData] = useState<any[]>([]);
 
   // 📖 名簿タブ
   const [newArcherName, setNewArcherName] = useState("");
@@ -196,16 +197,25 @@ export default function Home() {
     if (error || !data) return;
 
     const stats: { [name: string]: { name: string, hits: number, total: number, tachiHits: number, tachiTotal: number } } = {};
-    
+    const monthlyStats: { [name: string]: { name: string, hits: number, total: number } } = {};
+    const now = new Date();
+
     data.forEach(s => {
+      const d = new Date(s.created_at);
+      const isThisMonth = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+
       if (!stats[s.archer_name]) stats[s.archer_name] = { name: s.archer_name, hits: 0, total: 0, tachiHits: 0, tachiTotal: 0 };
+      if (!monthlyStats[s.archer_name]) monthlyStats[s.archer_name] = { name: s.archer_name, hits: 0, total: 0 };
+
       s.records.forEach((r: any) => {
         r.arrows.forEach((a: string) => {
           if (a === "○" || a === "×") {
             stats[s.archer_name].total++;
+            if (isThisMonth) monthlyStats[s.archer_name].total++;
             if (s.practice_type === "立") stats[s.archer_name].tachiTotal++;
             if (a === "○") {
               stats[s.archer_name].hits++;
+              if (isThisMonth) monthlyStats[s.archer_name].hits++;
               if (s.practice_type === "立") stats[s.archer_name].tachiHits++;
             }
           }
@@ -217,33 +227,24 @@ export default function Home() {
     if (members.length === 0) return;
 
     const activeMembers = members.filter(m => m.total > 0);
-    if (activeMembers.length === 0) {
-      setRankings({ hitRate: [], totalArrows: [], totalHits: [], tachiRate: [] });
-      return;
-    }
+    if (activeMembers.length === 0) return;
 
     const avgArrows = activeMembers.reduce((sum, m) => sum + m.total, 0) / activeMembers.length;
     const threshold = avgArrows / 2;
 
-    const hitRate = members
-      .filter(m => m.total >= threshold)
-      .map(m => ({ ...m, value: Math.round((m.hits / m.total) * 100) }))
-      .sort((a, b) => b.value - a.value).slice(0, 5);
+    setRankings({
+      hitRate: members.filter(m => m.total >= threshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value).slice(0,5),
+      totalArrows: members.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value).slice(0,5),
+      totalHits: members.map(m => ({ ...m, value: m.hits })).sort((a,b)=>b.value-a.value).slice(0,5),
+      tachiRate: members.filter(m => m.total >= threshold && m.tachiTotal > 0).map(m => ({ ...m, value: Math.round((m.tachiHits/m.tachiTotal)*100) })).sort((a,b)=>b.value-a.value).slice(0,5)
+    });
 
-    const totalArrows = members
-      .map(m => ({ ...m, value: m.total }))
-      .sort((a, b) => b.value - a.value).slice(0, 5);
+    // 月的表用データ（全件）
+    setMonthlyTableData(Object.values(monthlyStats).sort((a,b) => b.hits - a.hits));
+  };
 
-    const totalHits = members
-      .map(m => ({ ...m, value: m.hits }))
-      .sort((a, b) => b.value - a.value).slice(0, 5);
-
-    const tachiRate = members
-      .filter(m => m.total >= threshold && m.tachiTotal > 0)
-      .map(m => ({ ...m, value: Math.round((m.tachiHits / m.tachiTotal) * 100) }))
-      .sort((a, b) => b.value - a.value).slice(0, 5);
-
-    setRankings({ hitRate, totalArrows, totalHits, tachiRate });
+  const handleUnlock = () => {
+    if (passInput === SECRET_PASSWORD) { setIsUnlocked(true); } else { alert("パスワードが違います！"); }
   };
 
   return (
@@ -259,7 +260,6 @@ export default function Home() {
         ))}
       </div>
 
-      {/* ========== 個人タブ ========== */}
       {activeTab === "individual" && (
         <div className="animate-fade-in">
           <div className="mb-6 p-5 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-4">
@@ -310,7 +310,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* ========== 団体タブ ========== */}
       {activeTab === "team" && (
         <div className="animate-fade-in">
           <div className="mb-6 p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
@@ -361,14 +360,11 @@ export default function Home() {
                     {round.arrows.map((personArrows, mIndex) => (
                       <div key={mIndex} className="flex items-center gap-2 border-b border-gray-50 pb-2 last:border-0">
                         <div className="w-12"><span className="font-bold text-gray-700 text-[10px] truncate block">{teamMembers[mIndex]?.name || "未選択"}</span></div>
-                        
-                        {/* 🔥 ここを修正！ `gap-1.5` を `gap-2 sm:gap-3` にして、隙間をほんの少し広げました！ */}
                         <div className="flex gap-2 sm:gap-3 flex-1 justify-end">
                           {personArrows.map((state, aIndex) => (
                             <button key={aIndex} onClick={() => toggleTeamArrow(rIndex, mIndex, aIndex)} className={`flex items-center justify-center w-10 h-10 rounded-full text-lg font-bold transition-all border-2 ${state === "○" ? "bg-red-500 text-white border-red-100" : state === "×" ? "bg-blue-500 text-white border-blue-100" : "bg-gray-100 text-gray-300 border-gray-100"}`}>{state}</button>
                           ))}
                         </div>
-                        
                       </div>
                     ))}
                   </div>
@@ -402,32 +398,27 @@ export default function Home() {
               </select>
             </div>
           </div>
-          
           {anaArcher && (
             <div className="bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden">
               <div className="bg-gray-800 p-4 text-white">
                 <h2 className="text-lg font-bold mb-4">📊 {anaArcher} さん</h2>
-                
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-wrap bg-gray-700 rounded-lg p-1 gap-1">
                     {["all", "year", "month", "week", "custom_month"].map(t => (
                       <button key={t} onClick={() => setAnaTimeframe(t as any)} className={`flex-1 min-w-[50px] text-[10px] py-2 rounded-md font-bold transition-all ${anaTimeframe === t ? "bg-blue-500 shadow" : "text-gray-400"}`}>{t === "all" ? "全" : t === "year" ? "年" : t === "month" ? "月" : t === "week" ? "週" : "指定"}</button>
                     ))}
                   </div>
-
                   <div className="flex bg-gray-700 rounded-lg p-1">
                     <button onClick={() => setAnaType("all")} className={`flex-1 text-[10px] sm:text-xs py-2 rounded-md font-bold transition-all ${anaType === "all" ? "bg-green-500 shadow" : "text-gray-400"}`}>すべての記録</button>
                     <button onClick={() => setAnaType("tachi")} className={`flex-1 text-[10px] sm:text-xs py-2 rounded-md font-bold transition-all ${anaType === "tachi" ? "bg-green-500 shadow" : "text-gray-400"}`}>立の記録のみ</button>
                   </div>
                 </div>
-
               </div>
               <div className="p-5 space-y-8">
                 <div className="text-center">
                   <p className="text-[60px] font-black text-blue-600 leading-none">{((analysisData.hits / analysisData.total) * 100).toFixed(1)}<span className="text-xl ml-1">%</span></p>
                   <p className="text-gray-400 font-bold mt-2">{analysisData.hits} 中 / {analysisData.total} 射</p>
                 </div>
-                
                 <div className="grid grid-cols-5 gap-1 sm:gap-2">
                   {[
                     {l: "皆中", v: tachiStats.kaichu, bg: "bg-red-50", border: "border-red-100", text1: "text-red-400", text2: "text-red-600"},
@@ -442,11 +433,9 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
-
                 {chartData.length > 0 && (
                   <div className="h-40 w-full"><ResponsiveContainer><LineChart data={chartData}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" hide /><YAxis domain={[0, 100]} hide /><Tooltip /><Line type="monotone" dataKey="的中率(%)" stroke="#3b82f6" strokeWidth={3} dot={false} /></LineChart></ResponsiveContainer></div>
                 )}
-
                 <div>
                   <h3 className="text-sm font-bold text-gray-700 border-b border-gray-200 pb-2 mb-4">🏹 立の詳細（矢ごとの的中率）</h3>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -463,7 +452,6 @@ export default function Home() {
                     })}
                   </div>
                 </div>
-
               </div>
             </div>
           )}
@@ -472,7 +460,7 @@ export default function Home() {
 
       {/* ========== 🏆 ランキングタブ ========== */}
       {activeTab === "rankings" && (
-        <div className="animate-fade-in space-y-6">
+        <div className="animate-fade-in space-y-8">
           <p className="text-[10px] text-gray-400 text-center font-bold">※的中率は「本当に練習している人の平均矢数」の半分以上を引いている人のみ表示</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {[
@@ -497,10 +485,53 @@ export default function Home() {
               </div>
             ))}
           </div>
+
+          {/* 🔐 月的表セクション */}
+          <div className="mt-12 pt-8 border-t border-gray-200">
+            {!isUnlocked ? (
+              <div className="bg-white p-6 rounded-3xl border border-dashed border-gray-300 text-center">
+                <h3 className="text-sm font-bold text-gray-400 mb-4">🔐 全員分の月的表 (管理者用)</h3>
+                <div className="flex gap-2 max-w-xs mx-auto">
+                  <input type="password" placeholder="パスワード" value={passInput} onChange={(e)=>setPassInput(e.target.value)} className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none" />
+                  <button onClick={handleUnlock} className="bg-gray-800 text-white px-5 py-3 rounded-xl text-sm font-bold active:scale-95 transition-all">解除</button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200 animate-fade-in">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="font-black text-gray-700 text-lg">📅 今月の全全部員データ</h3>
+                  <button onClick={() => setIsUnlocked(false)} className="text-[10px] text-gray-400 font-bold border border-gray-200 px-3 py-1 rounded-full">ロックする</button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="py-3 text-[10px] font-black text-gray-400 uppercase">名前</th>
+                        <th className="py-3 text-[10px] font-black text-gray-400 uppercase text-center">的中</th>
+                        <th className="py-3 text-[10px] font-black text-gray-400 uppercase text-center">矢数</th>
+                        <th className="py-3 text-[10px] font-black text-gray-400 uppercase text-right">的中率</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monthlyTableData.map((m) => (
+                        <tr key={m.name} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                          <td className="py-4 text-sm font-bold text-gray-700">{m.name}</td>
+                          <td className="py-4 text-sm font-black text-blue-600 text-center">{m.hits}</td>
+                          <td className="py-4 text-sm text-gray-400 text-center">{m.total}</td>
+                          <td className="py-4 text-sm font-black text-gray-800 text-right">
+                            {m.total > 0 ? Math.round((m.hits/m.total)*100) : 0}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {/* ========== 📖 名簿タブ ========== */}
       {activeTab === "members" && (
         <div className="animate-fade-in space-y-6">
           <div className="bg-white p-6 rounded-3xl border border-gray-200">
@@ -516,7 +547,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* ========== 📅 予定表タブ ========== */}
       {activeTab === "schedule" && (
         <div className="animate-fade-in space-y-6">
           <div className="bg-white p-6 rounded-3xl border border-gray-200">
