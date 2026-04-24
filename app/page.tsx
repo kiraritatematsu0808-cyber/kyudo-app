@@ -294,7 +294,6 @@ export default function Home() {
                 <p className="text-center text-gray-400 text-xs font-black mb-4">{rIndex + 1}立目</p>
                 <div className="flex justify-center gap-4">
                   {record.arrows.map((state, aIndex) => (
-                    // 🔥ここを修正！ `flex items-center justify-center` を追加してド真ん中に固定！
                     <button key={aIndex} onClick={() => toggleIndArrow(rIndex, aIndex)} className={`flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full text-3xl font-bold transition-all border-4 ${state === "○" ? "bg-red-500 text-white border-red-200" : state === "×" ? "bg-blue-500 text-white border-blue-200" : "bg-gray-100 text-gray-300 border-gray-200"}`}>{state}</button>
                   ))}
                 </div>
@@ -362,12 +361,14 @@ export default function Home() {
                     {round.arrows.map((personArrows, mIndex) => (
                       <div key={mIndex} className="flex items-center gap-2 border-b border-gray-50 pb-2 last:border-0">
                         <div className="w-12"><span className="font-bold text-gray-700 text-[10px] truncate block">{teamMembers[mIndex]?.name || "未選択"}</span></div>
-                        <div className="flex gap-1.5 flex-1 justify-end">
+                        
+                        {/* 🔥 ここを修正！ `gap-1.5` を `gap-2 sm:gap-3` にして、隙間をほんの少し広げました！ */}
+                        <div className="flex gap-2 sm:gap-3 flex-1 justify-end">
                           {personArrows.map((state, aIndex) => (
-                            // 🔥ここも修正！ 団体タブのボタンもド真ん中に固定！
                             <button key={aIndex} onClick={() => toggleTeamArrow(rIndex, mIndex, aIndex)} className={`flex items-center justify-center w-10 h-10 rounded-full text-lg font-bold transition-all border-2 ${state === "○" ? "bg-red-500 text-white border-red-100" : state === "×" ? "bg-blue-500 text-white border-blue-100" : "bg-gray-100 text-gray-300 border-gray-100"}`}>{state}</button>
                           ))}
                         </div>
+                        
                       </div>
                     ))}
                   </div>
