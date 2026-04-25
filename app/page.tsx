@@ -27,10 +27,6 @@ export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
   const [linkArcherId, setLinkArcherId] = useState("");
 
-  // 💡 罠突破用！紐付け画面で新規登録するためのステート
-  const [newLinkName, setNewLinkName] = useState("");
-  const [newLinkGrade, setNewLinkGrade] = useState(GRADES[3]);
-
   const [activeTab, setActiveTab] = useState<"individual" | "team" | "analysis" | "members" | "schedule" | "rankings">("individual");
   const [archers, setArchers] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -178,7 +174,6 @@ export default function Home() {
     } 
   };
 
-  // ① 既存の部員と紐づける処理
   const handleLinkArcher = async () => {
     if (!linkArcherId) return;
     setAuthLoading(true);
@@ -192,28 +187,6 @@ export default function Home() {
       alert("エラー: " + err.message); 
       setAuthLoading(false);
     } 
-  };
-
-  // 💡 ② 新しく部員を登録して、そのまま紐づける処理（罠突破用！）
-  const handleCreateAndLinkArcher = async () => {
-    if (!newLinkName.trim()) return;
-    setAuthLoading(true);
-    try {
-      // 名簿に名前を登録すると同時に、user_idも一緒に書き込む！
-      const { error } = await supabase.from("archers").insert([{
-        name: newLinkName,
-        grade: newLinkGrade,
-        user_id: user.id
-      }]);
-      if (error) throw error;
-
-      await checkLinkedArcher(user.id);
-      await fetchArchers();
-      alert(`「${newLinkName}」さんとして名簿に登録し、紐付けを完了しました！🎉`);
-    } catch (err: any) {
-      alert("登録エラー: " + err.message);
-      setAuthLoading(false);
-    }
   };
 
   const handleLogout = async () => {
@@ -417,7 +390,6 @@ export default function Home() {
 
   // ========== 🖥️ UI 表示の分岐 ==========
 
-  // 1. ローディング画面
   if (authLoading) return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6 text-center">
       <p className="text-blue-500 font-bold animate-pulse text-lg mb-8">読み込み中...</p>
@@ -427,7 +399,6 @@ export default function Home() {
     </div>
   );
 
-  // 2. 未ログインの場合（ログイン・登録画面）
   if (!user) {
     return (
       <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50">
@@ -459,48 +430,38 @@ export default function Home() {
     );
   }
 
-  // 3. ログイン済だけど、名簿と紐づいていない場合（初回限定画面：罠突破UI搭載！）
   if (!linkedArcher) {
-    const unlinkedArchers = archers.filter(a => !a.user_id);
     return (
-      <main className="p-4 sm:p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50">
-        <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-lg border border-blue-100 text-center">
+      <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50">
+        <div className="bg-white p-8 rounded-3xl shadow-lg border border-blue-100 text-center">
           <span className="text-4xl block mb-4">🤝</span>
-          <h2 className="text-xl font-black text-gray-800 mb-2">アプリを開始する</h2>
-          <p className="text-xs text-gray-500 mb-8 font-bold">あなたのお名前を教えてください。</p>
+          <h2 className="text-xl font-black text-gray-800 mb-2">名簿との連携</h2>
+          <p className="text-xs text-gray-500 mb-6 font-bold">あなたは名簿の中の誰ですか？<br/>自分の名前を選んでください。</p>
           
-          {/* ① 既存の部員から選ぶ */}
-          <div className="bg-gray-50 p-4 rounded-2xl mb-6 border border-gray-100">
-            <p className="text-[10px] font-bold text-gray-400 mb-3 text-left">① すでに名簿に名前がある方</p>
-            <select value={linkArcherId} onChange={e => setLinkArcherId(e.target.value)} className="w-full p-3 bg-white border border-gray-200 rounded-xl font-bold text-gray-800 outline-none mb-4">
-              <option value="">自分の名前を選択...</option>
-              {unlinkedArchers.map(a => <option key={a.id} value={a.id}>{a.grade} {a.name}</option>)}
-            </select>
-            <button onClick={handleLinkArcher} disabled={!linkArcherId} className="w-full py-3 bg-green-500 text-white font-bold rounded-xl shadow-sm disabled:opacity-50 active:scale-95 transition-all">
-              この名前で始める
-            </button>
-          </div>
+          {/* 💡 罠突破！「未連携」だけでなく「全員」を表示します！ */}
+          <select value={linkArcherId} onChange={e => setLinkArcherId(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none mb-6">
+            <option value="">自分の名前を選択...</option>
+            {archers.map(a => (
+              <option key={a.id} value={a.id}>
+                {a.grade} {a.name} {a.user_id ? "(連携済み)" : ""}
+              </option>
+            ))}
+          </select>
+          
+          <button onClick={handleLinkArcher} disabled={!linkArcherId} className="w-full py-4 bg-green-500 text-white font-bold rounded-xl shadow-md disabled:opacity-50 active:scale-95 transition-all">
+            この名前で始める
+          </button>
 
-          {/* 💡 罠突破！ ② 新しく部員を登録する */}
-          <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-            <p className="text-[10px] font-bold text-blue-400 mb-3 text-left">② 上のリストに名前がない方（新規）</p>
-            <div className="flex gap-2 mb-4">
-              <select value={newLinkGrade} onChange={e => setNewLinkGrade(e.target.value)} className="w-1/3 p-3 bg-white border border-blue-200 rounded-xl font-bold text-blue-600 outline-none">
-                {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
-              <input type="text" placeholder="名前を入力" value={newLinkName} onChange={e => setNewLinkName(e.target.value)} className="w-2/3 p-3 bg-white border border-blue-200 rounded-xl outline-none font-bold text-gray-700" />
-            </div>
-            <button onClick={handleCreateAndLinkArcher} disabled={!newLinkName.trim()} className="w-full py-3 bg-blue-500 text-white font-bold rounded-xl shadow-sm disabled:opacity-50 active:scale-95 transition-all">
-              新しく登録して始める
-            </button>
+          {/* 💡 原因究明用の透視メガネ（デバッグ情報） */}
+          <div className="mt-8 pt-4 border-t border-gray-100 text-[10px] text-gray-400 text-left">
+            <p>※デバッグ情報（原因究明用）</p>
+            <p className="break-all">あなたのID: {user?.id}</p>
           </div>
-
         </div>
       </main>
     );
   }
 
-  // 4. メインアプリ画面（ログイン＆紐付け完了）
   return (
     <main className="p-4 sm:p-8 max-w-2xl mx-auto min-h-screen bg-gray-50 text-black font-sans pb-20">
       
