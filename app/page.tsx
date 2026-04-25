@@ -67,26 +67,51 @@ export default function Home() {
   // ========== 🔄 ログイン状態の監視と初期データ取得 ==========
   useEffect(() => {
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user || null);
-      if (session?.user) await checkLinkedArcher(session.user.id);
-      else setAuthLoading(false);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setUser(session?.user || null);
+        if (session?.user) {
+          await checkLinkedArcher(session.user.id);
+        } else {
+          setAuthLoading(false);
+        }
+      } catch (err) {
+        console.error("セッション確認エラー:", err);
+        setAuthLoading(false);
+      }
     };
+    
     checkSession();
     fetchArchers();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user || null);
-      if (session?.user) await checkLinkedArcher(session.user.id);
-      else { setLinkedArcher(null); setAuthLoading(false); }
+      if (session?.user) {
+        await checkLinkedArcher(session.user.id);
+      } else {
+        setLinkedArcher(null);
+        setAuthLoading(false);
+      }
     });
+    
     return () => subscription.unsubscribe();
   }, []);
 
+  // 💡 フリーズの原因だった部分を修正！（データが0件でもパニックにならないようにしました）
   const checkLinkedArcher = async (userId: string) => {
-    const { data } = await supabase.from("archers").select("*").eq("user_id", userId).single();
-    if (data) setLinkedArcher(data);
-    setAuthLoading(false);
+    try {
+      const { data, error } = await supabase.from("archers").select("*").eq("user_id", userId).limit(1);
+      if (data && data.length > 0) {
+        setLinkedArcher(data[0]); // データがあればセットする
+      } else {
+        setLinkedArcher(null); // データがなければ「未連携」にする
+      }
+    } catch (err) {
+      console.error("名簿連携確認エラー:", err);
+    } finally {
+      // エラーが起きても起きなくても、絶対にローディング画面を終了させる！
+      setAuthLoading(false);
+    }
   };
 
   const fetchArchers = async () => {
@@ -113,8 +138,10 @@ export default function Home() {
         if (error) throw error;
         alert("登録完了！このままログインします。");
       }
-    } catch (err: any) { alert("エラー: " + err.message); } 
-    finally { setAuthLoading(false); }
+    } catch (err: any) { 
+      alert("エラー: " + err.message); 
+      setAuthLoading(false); // エラー時もローディング解除
+    } 
   };
 
   const handleLinkArcher = async () => {
@@ -126,8 +153,10 @@ export default function Home() {
       await checkLinkedArcher(user.id);
       await fetchArchers();
       alert("アカウントと名簿の紐付けが完了しました！🎉");
-    } catch (err: any) { alert("エラー: " + err.message); } 
-    finally { setAuthLoading(false); }
+    } catch (err: any) { 
+      alert("エラー: " + err.message); 
+      setAuthLoading(false);
+    } 
   };
 
   const handleLogout = async () => {
@@ -297,7 +326,6 @@ export default function Home() {
         });
       });
 
-      // 💡 復活！！「平均矢数の半分以上」の厳格な足切りルール
       const members = Object.values(stats).filter(m => m.total > 0);
       if (members.length > 0) {
         const avgArrows = members.reduce((sum, m) => sum + m.total, 0) / members.length;
@@ -329,7 +357,7 @@ export default function Home() {
   // ========== 🖥️ UI 表示の分岐 ==========
 
   // 1. ローディング画面
-  if (authLoading) return <div className="flex items-center justify-center min-h-screen bg-gray-50"><p className="text-gray-500 font-bold animate-pulse">読み込み中...</p></div>;
+  if (authLoading) return <div className="flex items-center justify-center min-h-screen bg-gray-50"><p className="text-blue-500 font-bold animate-pulse text-lg">読み込み中...</p></div>;
 
   // 2. 未ログインの場合（ログイン・登録画面）
   if (!user) {
