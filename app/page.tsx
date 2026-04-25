@@ -18,7 +18,7 @@ const getPositionName = (index: number, total: number) => {
 };
 
 export default function Home() {
-  // 🔐 認証（ログイン）用ステート
+  // 🔐 認証ステート
   const [user, setUser] = useState<any>(null);
   const [linkedArcher, setLinkedArcher] = useState<any>(null);
   const [authEmail, setAuthEmail] = useState("");
@@ -43,8 +43,6 @@ export default function Home() {
   const [teamRounds, setTeamRounds] = useState([{ id: 1, arrows: Array.from({ length: 6 }, () => ["未", "未", "未", "未"]) }]);
 
   // 📊 分析タブ
-  const [anaGrade, setAnaGrade] = useState(GRADES[3]);
-  const [anaArcher, setAnaArcher] = useState("");
   const [anaTimeframe, setAnaTimeframe] = useState<"all" | "year" | "month" | "week" | "custom_month">("all");
   const [anaCustomMonth, setAnaCustomMonth] = useState(new Date().toISOString().slice(0, 7));
   const [anaType, setAnaType] = useState<"all" | "tachi">("all");
@@ -96,10 +94,11 @@ export default function Home() {
     if (data) setArchers(data);
   };
 
+  // タブ切り替え時のデータ取得
   useEffect(() => { 
-    if (activeTab === "analysis" && anaArcher) fetchAnalysisData();
+    if (activeTab === "analysis" && linkedArcher) fetchAnalysisData();
     if (activeTab === "rankings") fetchRankingData(); 
-  }, [activeTab, anaArcher, anaTimeframe, anaCustomMonth, anaType]);
+  }, [activeTab, linkedArcher, anaTimeframe, anaCustomMonth, anaType]);
 
   // ========== 🔐 ログイン・登録・紐付け処理 ==========
   const handleAuth = async (e: React.FormEvent) => {
@@ -169,7 +168,6 @@ export default function Home() {
   };
 
   const saveIndividual = async () => {
-    // 💡 紐づいた自分の名前を自動で使う！
     if (!linkedArcher) return;
     setIsSaving(true);
     try {
@@ -202,12 +200,12 @@ export default function Home() {
     if (!error) { await fetchArchers(); alert(`${newArcherName}さんを登録しました！🎉`); setNewArcherName(""); }
   };
 
-  // ========== 📊 データ取得処理 (Analysis & Ranking) ==========
+  // ========== 📊 データ取得処理 (Analysis) ==========
   const fetchAnalysisData = async () => {
-    if (!anaArcher) return;
+    if (!linkedArcher) return;
     setIsLoadingAnalysis(true);
     try {
-      const { data, error } = await supabase.from("practice_sessions").select("*").eq("archer_name", anaArcher);
+      const { data, error } = await supabase.from("practice_sessions").select("*").eq("archer_name", linkedArcher.name);
       if (error) throw error;
       let hits = 0; let total = 0;
       let newArrowStats = [{ hits: 0, total: 0 }, { hits: 0, total: 0 }, { hits: 0, total: 0 }, { hits: 0, total: 0 }];
@@ -259,65 +257,72 @@ export default function Home() {
     } catch (error) { console.error(error); } finally { setIsLoadingAnalysis(false); }
   };
 
+  // ========== 🏆 データ取得処理 (Ranking) ==========
   const fetchRankingData = async () => {
-    const { data, error } = await supabase.from("practice_sessions").select("*");
-    if (error || !data) return;
+    try {
+      const { data, error } = await supabase.from("practice_sessions").select("*");
+      if (error) throw error;
+      if (!data) return;
 
-    const stats: { [name: string]: { name: string, hits: number, total: number, tachiHits: number, tachiTotal: number } } = {};
-    const monthlyStats: { [name: string]: { name: string, hits: number, total: number, tachiHits: number, tachiTotal: number } } = {};
-    const now = new Date();
+      const stats: { [name: string]: { name: string, hits: number, total: number, tachiHits: number, tachiTotal: number } } = {};
+      const monthlyStats: { [name: string]: { name: string, hits: number, total: number, tachiHits: number, tachiTotal: number } } = {};
+      const now = new Date();
 
-    data.forEach(s => {
-      const d = new Date(s.created_at);
-      const isThisMonth = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+      data.forEach(s => {
+        const d = new Date(s.created_at);
+        const isThisMonth = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
 
-      if (!stats[s.archer_name]) stats[s.archer_name] = { name: s.archer_name, hits: 0, total: 0, tachiHits: 0, tachiTotal: 0 };
-      if (!monthlyStats[s.archer_name]) monthlyStats[s.archer_name] = { name: s.archer_name, hits: 0, total: 0, tachiHits: 0, tachiTotal: 0 };
+        if (!stats[s.archer_name]) stats[s.archer_name] = { name: s.archer_name, hits: 0, total: 0, tachiHits: 0, tachiTotal: 0 };
+        if (!monthlyStats[s.archer_name]) monthlyStats[s.archer_name] = { name: s.archer_name, hits: 0, total: 0, tachiHits: 0, tachiTotal: 0 };
 
-      s.records.forEach((r: any) => {
-        r.arrows.forEach((a: string) => {
-          if (a === "○" || a === "×") {
-            stats[s.archer_name].total++;
-            if (s.practice_type === "立") stats[s.archer_name].tachiTotal++;
-            if (isThisMonth) {
-              monthlyStats[s.archer_name].total++;
-              if (s.practice_type === "立") monthlyStats[s.archer_name].tachiTotal++;
-            }
-            if (a === "○") {
-              stats[s.archer_name].hits++;
-              if (s.practice_type === "立") stats[s.archer_name].tachiHits++;
+        s.records.forEach((r: any) => {
+          r.arrows.forEach((a: string) => {
+            if (a === "○" || a === "×") {
+              stats[s.archer_name].total++;
+              if (s.practice_type === "立") stats[s.archer_name].tachiTotal++;
               if (isThisMonth) {
-                monthlyStats[s.archer_name].hits++;
-                if (s.practice_type === "立") monthlyStats[s.archer_name].tachiHits++;
+                monthlyStats[s.archer_name].total++;
+                if (s.practice_type === "立") monthlyStats[s.archer_name].tachiTotal++;
+              }
+              if (a === "○") {
+                stats[s.archer_name].hits++;
+                if (s.practice_type === "立") stats[s.archer_name].tachiHits++;
+                if (isThisMonth) {
+                  monthlyStats[s.archer_name].hits++;
+                  if (s.practice_type === "立") monthlyStats[s.archer_name].tachiHits++;
+                }
               }
             }
-          }
+          });
         });
       });
-    });
 
-    const members = Object.values(stats).filter(m => m.total > 0);
-    if (members.length > 0) {
-      const avgArrows = members.reduce((sum, m) => sum + m.total, 0) / members.length;
-      const threshold = avgArrows / 2;
-      setRankings({
-        hitRate: members.filter(m => m.total >= threshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value).slice(0,5),
-        totalArrows: members.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value).slice(0,5),
-        totalHits: members.map(m => ({ ...m, value: m.hits })).sort((a,b)=>b.value-a.value).slice(0,5),
-        tachiRate: members.filter(m => m.total >= threshold && m.tachiTotal > 0).map(m => ({ ...m, value: Math.round((m.tachiHits/m.tachiTotal)*100) })).sort((a,b)=>b.value-a.value).slice(0,5)
-      });
-    }
+      // 💡 復活！！「平均矢数の半分以上」の厳格な足切りルール
+      const members = Object.values(stats).filter(m => m.total > 0);
+      if (members.length > 0) {
+        const avgArrows = members.reduce((sum, m) => sum + m.total, 0) / members.length;
+        const threshold = avgArrows / 2; // 平均の半分
+        setRankings({
+          hitRate: members.filter(m => m.total >= threshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value).slice(0,5),
+          totalArrows: members.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value).slice(0,5),
+          totalHits: members.map(m => ({ ...m, value: m.hits })).sort((a,b)=>b.value-a.value).slice(0,5),
+          tachiRate: members.filter(m => m.total >= threshold && m.tachiTotal > 0).map(m => ({ ...m, value: Math.round((m.tachiHits/m.tachiTotal)*100) })).sort((a,b)=>b.value-a.value).slice(0,5)
+        });
+      }
 
-    const monthlyMembers = Object.values(monthlyStats).filter(m => m.total > 0);
-    if (monthlyMembers.length > 0) {
-      const monthlyAvg = monthlyMembers.reduce((sum, m) => sum + m.total, 0) / monthlyMembers.length;
-      const mThreshold = monthlyAvg / 2;
-      setMonthlyRankings({
-        hitRate: monthlyMembers.filter(m => m.total >= mThreshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value),
-        totalArrows: monthlyMembers.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value),
-        totalHits: monthlyMembers.map(m => ({ ...m, value: m.hits })).sort((a,b)=>b.value-a.value),
-        tachiRate: monthlyMembers.filter(m => m.total >= mThreshold && m.tachiTotal > 0).map(m => ({ ...m, value: Math.round((m.tachiHits/m.tachiTotal)*100) })).sort((a,b)=>b.value-a.value)
-      });
+      const monthlyMembers = Object.values(monthlyStats).filter(m => m.total > 0);
+      if (monthlyMembers.length > 0) {
+        const monthlyAvg = monthlyMembers.reduce((sum, m) => sum + m.total, 0) / monthlyMembers.length;
+        const mThreshold = monthlyAvg / 2; // 今月の平均の半分
+        setMonthlyRankings({
+          hitRate: monthlyMembers.filter(m => m.total >= mThreshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value),
+          totalArrows: monthlyMembers.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value),
+          totalHits: monthlyMembers.map(m => ({ ...m, value: m.hits })).sort((a,b)=>b.value-a.value),
+          tachiRate: monthlyMembers.filter(m => m.total >= mThreshold && m.tachiTotal > 0).map(m => ({ ...m, value: Math.round((m.tachiHits/m.tachiTotal)*100) })).sort((a,b)=>b.value-a.value)
+        });
+      }
+    } catch (err: any) {
+      console.error("ランキング取得エラー:", err.message);
     }
   };
 
@@ -385,7 +390,7 @@ export default function Home() {
   return (
     <main className="p-4 sm:p-8 max-w-2xl mx-auto min-h-screen bg-gray-50 text-black font-sans pb-20">
       
-      {/* 🟢 ヘッダー部分（ログアウト追加） */}
+      {/* 🟢 ヘッダー部分 */}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl sm:text-3xl font-bold">🎯 弓道Webアプリ</h1>
         <button onClick={handleLogout} className="text-[10px] font-bold text-gray-400 border border-gray-200 px-3 py-1.5 rounded-full hover:bg-gray-100">
@@ -402,12 +407,11 @@ export default function Home() {
         ))}
       </div>
 
-      {/* ========== 👤 個人タブ（入力自動化！） ========== */}
+      {/* ========== 👤 個人タブ ========== */}
       {activeTab === "individual" && (
         <div className="animate-fade-in">
           <div className="mb-6 p-5 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-4">
             
-            {/* 💡 革命：学年と名前を選ぶドロップダウンを消去し、ログインユーザー名を表示 */}
             <div className="flex items-center gap-4 bg-blue-50 p-4 rounded-xl border border-blue-100">
               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-2xl shadow-sm border border-blue-100">👤</div>
               <div>
@@ -426,7 +430,6 @@ export default function Home() {
             </div>
           </div>
           
-          {/* 的中入力エリア */}
           <div className="space-y-6 mb-8">
             {indRecords.map((record, rIndex) => (
               <div key={record.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200 relative overflow-hidden">
@@ -524,25 +527,17 @@ export default function Home() {
       {/* ========== 📊 分析タブ ========== */}
       {activeTab === "analysis" && (
         <div className="animate-fade-in space-y-6">
-          <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex gap-3">
-            <div className="w-1/3">
-              <label className="block text-[10px] font-bold text-gray-400 mb-1">GRADE</label>
-              <select value={anaGrade} onChange={(e) => { setAnaGrade(e.target.value); setAnaArcher(""); }} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold text-blue-600 outline-none">
-                {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
-            </div>
-            <div className="flex-1">
-              <label className="block text-[10px] font-bold text-gray-400 mb-1">ARCHER</label>
-              <select value={anaArcher} onChange={(e) => setAnaArcher(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-base outline-none">
-                <option value="">名前を選択...</option>
-                {archers.filter(a => a.grade === anaGrade).map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
-              </select>
+          <div className="flex items-center gap-4 bg-blue-50 p-4 rounded-xl border border-blue-100 shadow-sm">
+            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-2xl shadow-sm border border-blue-100">📊</div>
+            <div>
+              <p className="text-[10px] font-bold text-blue-500 mb-0.5">あなたの分析データ</p>
+              <p className="text-lg font-black text-gray-800">{linkedArcher.grade} {linkedArcher.name}</p>
             </div>
           </div>
-          {anaArcher && (
+
+          {linkedArcher && (
             <div className="bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden">
               <div className="bg-gray-800 p-4 text-white">
-                <h2 className="text-lg font-bold mb-4">📊 {anaArcher} さん</h2>
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-wrap bg-gray-700 rounded-lg p-1 gap-1">
                     {["all", "year", "month", "week", "custom_month"].map(t => (
@@ -604,7 +599,7 @@ export default function Home() {
         <div className="animate-fade-in space-y-8">
           <div className="space-y-4">
             <h2 className="text-lg font-bold text-gray-800 text-center border-b pb-2">👑 全期間ランキング (TOP5)</h2>
-            <p className="text-[10px] text-gray-400 text-center font-bold mb-4">※的中率は平均矢数の半分以上を引いている人のみ</p>
+            <p className="text-[10px] text-gray-400 text-center font-bold mb-4">※的中率は「平均矢数の半分以上」を引いている人のみ</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
                 {title: "🎯 的中率", data: rankings.hitRate, unit: "%", color: "text-red-500"},
@@ -615,7 +610,7 @@ export default function Home() {
                 <div key={r.title} className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm">
                   <h3 className="text-xs font-black text-gray-400 mb-4 border-b pb-2">{r.title}</h3>
                   <div className="space-y-3">
-                    {r.data.length > 0 ? r.data.map((m, i) => (
+                    {r.data && r.data.length > 0 ? r.data.map((m, i) => (
                       <div key={m.name} className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-black ${i === 0 ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-400"}`}>{i+1}</span>
@@ -653,9 +648,9 @@ export default function Home() {
                     {title: "🥋 今月の立的中率", data: monthlyRankings.tachiRate, unit: "%", color: "text-purple-500"}
                   ].map(r => (
                     <div key={r.title} className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm flex flex-col max-h-96">
-                      <h3 className="text-xs font-black text-gray-500 mb-4 border-b pb-2 sticky top-0 bg-white z-10">{r.title} <span className="font-normal text-[10px]">({r.data.length}人)</span></h3>
+                      <h3 className="text-xs font-black text-gray-500 mb-4 border-b pb-2 sticky top-0 bg-white z-10">{r.title} <span className="font-normal text-[10px]">({r.data ? r.data.length : 0}人)</span></h3>
                       <div className="space-y-3 overflow-y-auto flex-1 pr-2">
-                        {r.data.length > 0 ? r.data.map((m, i) => (
+                        {r.data && r.data.length > 0 ? r.data.map((m, i) => (
                           <div key={m.name} className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-black ${i === 0 ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-400"}`}>{i+1}</span>
