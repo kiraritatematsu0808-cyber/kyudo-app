@@ -123,6 +123,19 @@ export default function Home() {
     };
   }, []);
 
+  // 💡 追加！「別タブから戻ってきた時」に最新情報を確認する機能
+  useEffect(() => {
+    const handleFocus = () => {
+      if (user) {
+        checkLinkedArcher(user.id);
+        fetchArchers();
+      }
+    };
+    // 画面にフォーカスが当たった（タブを切り替えた）瞬間に再チェック！
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [user]);
+
   const checkLinkedArcher = async (userId: string) => {
     try {
       const { data, error } = await supabase.from("archers").select("*").eq("user_id", userId).limit(1);
@@ -438,7 +451,6 @@ export default function Home() {
           <h2 className="text-xl font-black text-gray-800 mb-2">名簿との連携</h2>
           <p className="text-xs text-gray-500 mb-6 font-bold">あなたは名簿の中の誰ですか？<br/>自分の名前を選んでください。</p>
           
-          {/* 💡 罠突破！「未連携」だけでなく「全員」を表示します！ */}
           <select value={linkArcherId} onChange={e => setLinkArcherId(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none mb-6">
             <option value="">自分の名前を選択...</option>
             {archers.map(a => (
@@ -452,9 +464,13 @@ export default function Home() {
             この名前で始める
           </button>
 
-          {/* 💡 原因究明用の透視メガネ（デバッグ情報） */}
+          {/* 💡 追加！ 別のタブで紐付けた時に、手動で情報を更新するお助けボタン */}
+          <button onClick={() => { setAuthLoading(true); checkLinkedArcher(user.id); }} className="mt-6 text-[10px] text-gray-400 font-bold hover:text-blue-500 transition-all border-b border-gray-300 pb-1">
+            🔄 別のタブで紐付けた場合はここをタップ（情報更新）
+          </button>
+
           <div className="mt-8 pt-4 border-t border-gray-100 text-[10px] text-gray-400 text-left">
-            <p>※デバッグ情報（原因究明用）</p>
+            <p>※デバッグ情報</p>
             <p className="break-all">あなたのID: {user?.id}</p>
           </div>
         </div>
