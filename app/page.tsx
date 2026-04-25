@@ -6,7 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 
 const GRADES = ["中1", "中2", "中3", "高1", "高2", "高3", "OB/OG", "先生"];
 const PRACTICE_TYPES = ["自練", "射込み", "立"];
-const SECRET_PASSWORD = "1234"; // 👈 パスワードはここで一括管理！
+const SECRET_PASSWORD = "1234";
 
 const getPositionName = (index: number, total: number) => {
   if (total === 1) return "大前";
@@ -18,14 +18,20 @@ const getPositionName = (index: number, total: number) => {
 };
 
 export default function Home() {
+  // 🔐 認証（ログイン）用ステート
+  const [user, setUser] = useState<any>(null);
+  const [linkedArcher, setLinkedArcher] = useState<any>(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [isLoginMode, setIsLoginMode] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [linkArcherId, setLinkArcherId] = useState("");
+
   const [activeTab, setActiveTab] = useState<"individual" | "team" | "analysis" | "members" | "schedule" | "rankings">("individual");
-  
-  const [archers, setArchers] = useState<{ id: number; name: string; grade: string }[]>([]);
+  const [archers, setArchers] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
   // 👤 個人タブ
-  const [indGrade, setIndGrade] = useState(GRADES[3]);
-  const [indArcher, setIndArcher] = useState("");
   const [indPracticeType, setIndPracticeType] = useState(PRACTICE_TYPES[0]);
   const [indRecords, setIndRecords] = useState([{ id: 1, arrows: ["未", "未", "未", "未"] }]);
 
@@ -48,37 +54,88 @@ export default function Home() {
   const [chartData, setChartData] = useState<{ date: string; "的中率(%)": number }[]>([]);
   const [tachiStats, setTachiStats] = useState({ kaichu: 0, sanchu: 0, nichu: 0, itchu: 0, zannen: 0 });
 
-  // 🏆 ランキング用（TOP5 ＆ 今月の全員分）
+  // 🏆 ランキング用
   const [rankings, setRankings] = useState<{ hitRate: any[], totalArrows: any[], totalHits: any[], tachiRate: any[] }>({ hitRate: [], totalArrows: [], totalHits: [], tachiRate: [] });
   const [monthlyRankings, setMonthlyRankings] = useState<{ hitRate: any[], totalArrows: any[], totalHits: any[], tachiRate: any[] }>({ hitRate: [], totalArrows: [], totalHits: [], tachiRate: [] });
-  
-  // 🔐 ロック機能用ステート
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [passInput, setPassInput] = useState("");
+  
+  // 📖 名簿用
   const [isMembersUnlocked, setIsMembersUnlocked] = useState(false);
   const [membersPassInput, setMembersPassInput] = useState("");
-
-  // 📖 名簿タブ
   const [newArcherName, setNewArcherName] = useState("");
   const [newArcherGrade, setNewArcherGrade] = useState(GRADES[3]);
 
-  useEffect(() => { fetchArchers(); }, []);
-  useEffect(() => { 
-    if (activeTab === "analysis" && anaArcher) fetchAnalysisData();
-    if (activeTab === "rankings") fetchRankingData(); 
-  }, [activeTab, anaArcher, anaTimeframe, anaCustomMonth, anaType]);
+  // ========== 🔄 ログイン状態の監視と初期データ取得 ==========
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user || null);
+      if (session?.user) await checkLinkedArcher(session.user.id);
+      else setAuthLoading(false);
+    };
+    checkSession();
+    fetchArchers();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setUser(session?.user || null);
+      if (session?.user) await checkLinkedArcher(session.user.id);
+      else { setLinkedArcher(null); setAuthLoading(false); }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const checkLinkedArcher = async (userId: string) => {
+    const { data } = await supabase.from("archers").select("*").eq("user_id", userId).single();
+    if (data) setLinkedArcher(data);
+    setAuthLoading(false);
+  };
 
   const fetchArchers = async () => {
     const { data } = await supabase.from("archers").select("*").order("name", { ascending: true });
     if (data) setArchers(data);
   };
 
-  const handleAddArcher = async () => {
-    if (!newArcherName.trim()) return;
-    const { error } = await supabase.from("archers").insert([{ name: newArcherName, grade: newArcherGrade }]);
-    if (!error) { await fetchArchers(); alert(`${newArcherName}さんを登録しました！🎉`); setNewArcherName(""); }
+  useEffect(() => { 
+    if (activeTab === "analysis" && anaArcher) fetchAnalysisData();
+    if (activeTab === "rankings") fetchRankingData(); 
+  }, [activeTab, anaArcher, anaTimeframe, anaCustomMonth, anaType]);
+
+  // ========== 🔐 ログイン・登録・紐付け処理 ==========
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    try {
+      if (isLoginMode) {
+        const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
+        if (error) throw error;
+        alert("登録完了！このままログインします。");
+      }
+    } catch (err: any) { alert("エラー: " + err.message); } 
+    finally { setAuthLoading(false); }
   };
 
+  const handleLinkArcher = async () => {
+    if (!linkArcherId) return;
+    setAuthLoading(true);
+    try {
+      const { error } = await supabase.from("archers").update({ user_id: user.id }).eq("id", linkArcherId);
+      if (error) throw error;
+      await checkLinkedArcher(user.id);
+      await fetchArchers();
+      alert("アカウントと名簿の紐付けが完了しました！🎉");
+    } catch (err: any) { alert("エラー: " + err.message); } 
+    finally { setAuthLoading(false); }
+  };
+
+  const handleLogout = async () => {
+    if(confirm("ログアウトしますか？")) await supabase.auth.signOut();
+  };
+
+  // ========== 🏹 記録保存処理 ==========
   const toggleIndArrow = (rIndex: number, aIndex: number) => {
     const newRecords = [...indRecords];
     const s = newRecords[rIndex].arrows[aIndex];
@@ -112,12 +169,13 @@ export default function Home() {
   };
 
   const saveIndividual = async () => {
-    if (!indArcher) { alert("名前を選択してください！"); return; }
+    // 💡 紐づいた自分の名前を自動で使う！
+    if (!linkedArcher) return;
     setIsSaving(true);
     try {
-      const { error } = await supabase.from("practice_sessions").insert([{ archer_name: indArcher, records: indRecords, practice_type: indPracticeType }]);
+      const { error } = await supabase.from("practice_sessions").insert([{ archer_name: linkedArcher.name, records: indRecords, practice_type: indPracticeType }]);
       if (error) throw error;
-      alert(`🎉 ${indArcher}さんの記録を保存しました！`);
+      alert(`🎉 ${linkedArcher.name}さんの記録を保存しました！`);
       setIndRecords([{ id: 1, arrows: ["未", "未", "未", "未"] }]);
     } catch (err: any) { alert("保存エラー: " + err.message); } finally { setIsSaving(false); }
   };
@@ -138,6 +196,13 @@ export default function Home() {
     } catch (err: any) { alert("保存エラー: " + err.message); } finally { setIsSaving(false); }
   };
 
+  const handleAddArcher = async () => {
+    if (!newArcherName.trim()) return;
+    const { error } = await supabase.from("archers").insert([{ name: newArcherName, grade: newArcherGrade }]);
+    if (!error) { await fetchArchers(); alert(`${newArcherName}さんを登録しました！🎉`); setNewArcherName(""); }
+  };
+
+  // ========== 📊 データ取得処理 (Analysis & Ranking) ==========
   const fetchAnalysisData = async () => {
     if (!anaArcher) return;
     setIsLoadingAnalysis(true);
@@ -198,9 +263,7 @@ export default function Home() {
     const { data, error } = await supabase.from("practice_sessions").select("*");
     if (error || !data) return;
 
-    // 全期間のデータ
     const stats: { [name: string]: { name: string, hits: number, total: number, tachiHits: number, tachiTotal: number } } = {};
-    // 今月のみのデータ
     const monthlyStats: { [name: string]: { name: string, hits: number, total: number, tachiHits: number, tachiTotal: number } } = {};
     const now = new Date();
 
@@ -216,16 +279,13 @@ export default function Home() {
           if (a === "○" || a === "×") {
             stats[s.archer_name].total++;
             if (s.practice_type === "立") stats[s.archer_name].tachiTotal++;
-            
             if (isThisMonth) {
               monthlyStats[s.archer_name].total++;
               if (s.practice_type === "立") monthlyStats[s.archer_name].tachiTotal++;
             }
-
             if (a === "○") {
               stats[s.archer_name].hits++;
               if (s.practice_type === "立") stats[s.archer_name].tachiHits++;
-              
               if (isThisMonth) {
                 monthlyStats[s.archer_name].hits++;
                 if (s.practice_type === "立") monthlyStats[s.archer_name].tachiHits++;
@@ -236,12 +296,10 @@ export default function Home() {
       });
     });
 
-    // --- 全期間のTOP5計算 ---
     const members = Object.values(stats).filter(m => m.total > 0);
     if (members.length > 0) {
       const avgArrows = members.reduce((sum, m) => sum + m.total, 0) / members.length;
       const threshold = avgArrows / 2;
-
       setRankings({
         hitRate: members.filter(m => m.total >= threshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value).slice(0,5),
         totalArrows: members.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value).slice(0,5),
@@ -250,14 +308,11 @@ export default function Home() {
       });
     }
 
-    // --- 今月の全員分計算 ---
     const monthlyMembers = Object.values(monthlyStats).filter(m => m.total > 0);
     if (monthlyMembers.length > 0) {
       const monthlyAvg = monthlyMembers.reduce((sum, m) => sum + m.total, 0) / monthlyMembers.length;
       const mThreshold = monthlyAvg / 2;
-
       setMonthlyRankings({
-        // slice(0,5) を外して全員表示！
         hitRate: monthlyMembers.filter(m => m.total >= mThreshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value),
         totalArrows: monthlyMembers.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value),
         totalHits: monthlyMembers.map(m => ({ ...m, value: m.hits })).sort((a,b)=>b.value-a.value),
@@ -266,19 +321,77 @@ export default function Home() {
     }
   };
 
-  const handleRankUnlock = () => {
-    if (passInput === SECRET_PASSWORD) { setIsUnlocked(true); setPassInput(""); } 
-    else { alert("パスワードが違います！"); }
-  };
+  // ========== 🖥️ UI 表示の分岐 ==========
 
-  const handleMembersUnlock = () => {
-    if (membersPassInput === SECRET_PASSWORD) { setIsMembersUnlocked(true); setMembersPassInput(""); } 
-    else { alert("パスワードが違います！"); }
-  };
+  // 1. ローディング画面
+  if (authLoading) return <div className="flex items-center justify-center min-h-screen bg-gray-50"><p className="text-gray-500 font-bold animate-pulse">読み込み中...</p></div>;
 
+  // 2. 未ログインの場合（ログイン・登録画面）
+  if (!user) {
+    return (
+      <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50">
+        <div className="bg-white p-8 rounded-3xl shadow-lg border border-gray-100">
+          <h1 className="text-2xl font-black text-center mb-2 text-gray-800">🎯 弓道ノート</h1>
+          <p className="text-xs text-center text-gray-400 font-bold mb-8">{isLoginMode ? "アカウントにログイン" : "新しくアカウントを作る"}</p>
+          
+          <form onSubmit={handleAuth} className="space-y-4">
+            <div>
+              <label className="block text-[10px] font-bold text-gray-400 mb-1">メールアドレス</label>
+              <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none" placeholder="example@email.com" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-gray-400 mb-1">パスワード</label>
+              <input type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none" placeholder="6文字以上" />
+            </div>
+            <button type="submit" className="w-full py-4 bg-blue-500 text-white font-bold rounded-xl shadow-md hover:bg-blue-600 active:scale-95 transition-all mt-4">
+              {isLoginMode ? "ログイン" : "登録する"}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center border-t border-gray-100 pt-6">
+            <button onClick={() => setIsLoginMode(!isLoginMode)} className="text-xs font-bold text-gray-500 hover:text-blue-500 underline underline-offset-4">
+              {isLoginMode ? "初めての方はこちら（新規登録）" : "すでにアカウントをお持ちの方"}
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // 3. ログイン済だけど、名簿と紐づいていない場合（初回限定画面）
+  if (!linkedArcher) {
+    const unlinkedArchers = archers.filter(a => !a.user_id);
+    return (
+      <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50">
+        <div className="bg-white p-8 rounded-3xl shadow-lg border border-blue-100 text-center">
+          <span className="text-4xl block mb-4">🤝</span>
+          <h2 className="text-xl font-black text-gray-800 mb-2">名簿との連携</h2>
+          <p className="text-xs text-gray-500 mb-6 font-bold">あなたは名簿の中の誰ですか？<br/>選んだ名前とアカウントを紐づけます。</p>
+          
+          <select value={linkArcherId} onChange={e => setLinkArcherId(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none mb-6">
+            <option value="">自分の名前を選択...</option>
+            {unlinkedArchers.map(a => <option key={a.id} value={a.id}>{a.grade} {a.name}</option>)}
+          </select>
+          
+          <button onClick={handleLinkArcher} disabled={!linkArcherId} className="w-full py-4 bg-green-500 text-white font-bold rounded-xl shadow-md disabled:opacity-50 active:scale-95 transition-all">
+            この名前で紐づける
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // 4. メインアプリ画面（ログイン＆紐付け完了）
   return (
     <main className="p-4 sm:p-8 max-w-2xl mx-auto min-h-screen bg-gray-50 text-black font-sans pb-20">
-      <h1 className="text-3xl font-bold text-center mb-6">🎯 弓道Webアプリ</h1>
+      
+      {/* 🟢 ヘッダー部分（ログアウト追加） */}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold">🎯 弓道Webアプリ</h1>
+        <button onClick={handleLogout} className="text-[10px] font-bold text-gray-400 border border-gray-200 px-3 py-1.5 rounded-full hover:bg-gray-100">
+          ログアウト
+        </button>
+      </div>
 
       <div className="flex bg-gray-200 p-1 rounded-2xl mb-8 shadow-inner overflow-x-auto">
         {[
@@ -289,9 +402,20 @@ export default function Home() {
         ))}
       </div>
 
+      {/* ========== 👤 個人タブ（入力自動化！） ========== */}
       {activeTab === "individual" && (
         <div className="animate-fade-in">
           <div className="mb-6 p-5 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-4">
+            
+            {/* 💡 革命：学年と名前を選ぶドロップダウンを消去し、ログインユーザー名を表示 */}
+            <div className="flex items-center gap-4 bg-blue-50 p-4 rounded-xl border border-blue-100">
+              <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-2xl shadow-sm border border-blue-100">👤</div>
+              <div>
+                <p className="text-[10px] font-bold text-blue-500 mb-0.5">ログイン中の部員</p>
+                <p className="text-lg font-black text-gray-800">{linkedArcher.grade} {linkedArcher.name}</p>
+              </div>
+            </div>
+
             <div>
               <label className="block text-[10px] font-bold text-gray-400 mb-1">練習種別</label>
               <div className="flex gap-2">
@@ -300,22 +424,9 @@ export default function Home() {
                 ))}
               </div>
             </div>
-            <div className="flex gap-3">
-              <div className="w-1/3">
-                <label className="block text-[10px] font-bold text-gray-400 mb-1">GRADE</label>
-                <select value={indGrade} onChange={(e) => { setIndGrade(e.target.value); setIndArcher(""); }} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold text-blue-600 outline-none">
-                  {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
-                </select>
-              </div>
-              <div className="flex-1">
-                <label className="block text-[10px] font-bold text-gray-400 mb-1">ARCHER</label>
-                <select value={indArcher} onChange={(e) => setIndArcher(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-base outline-none">
-                  <option value="">名前を選択...</option>
-                  {archers.filter(a => a.grade === indGrade).map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
-                </select>
-              </div>
-            </div>
           </div>
+          
+          {/* 的中入力エリア */}
           <div className="space-y-6 mb-8">
             {indRecords.map((record, rIndex) => (
               <div key={record.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200 relative overflow-hidden">
@@ -339,6 +450,7 @@ export default function Home() {
         </div>
       )}
 
+      {/* ========== 👥 団体タブ ========== */}
       {activeTab === "team" && (
         <div className="animate-fade-in">
           <div className="mb-6 p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
@@ -409,6 +521,7 @@ export default function Home() {
         </div>
       )}
 
+      {/* ========== 📊 分析タブ ========== */}
       {activeTab === "analysis" && (
         <div className="animate-fade-in space-y-6">
           <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex gap-3">
@@ -489,11 +602,9 @@ export default function Home() {
       {/* ========== 🏆 ランキングタブ ========== */}
       {activeTab === "rankings" && (
         <div className="animate-fade-in space-y-8">
-          
-          {/* 上半分：全期間のTOP5 */}
           <div className="space-y-4">
             <h2 className="text-lg font-bold text-gray-800 text-center border-b pb-2">👑 全期間ランキング (TOP5)</h2>
-            <p className="text-[10px] text-gray-400 text-center font-bold mb-4">※的中率は「本当に練習している人の平均矢数」の半分以上を引いている人のみ</p>
+            <p className="text-[10px] text-gray-400 text-center font-bold mb-4">※的中率は平均矢数の半分以上を引いている人のみ</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
                 {title: "🎯 的中率", data: rankings.hitRate, unit: "%", color: "text-red-500"},
@@ -519,24 +630,21 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 下半分：🔐 月的表（4項目全員分）セクション */}
           <div className="mt-12 pt-8 border-t-2 border-dashed border-gray-200">
             {!isUnlocked ? (
               <div className="bg-white p-6 rounded-3xl border border-dashed border-gray-300 text-center">
                 <h3 className="text-sm font-bold text-gray-500 mb-4">🔐 今月の全順位（月的表） - 管理者用</h3>
                 <div className="flex gap-2 max-w-xs mx-auto">
                   <input type="password" placeholder="パスワード" value={passInput} onChange={(e)=>setPassInput(e.target.value)} className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none" />
-                  <button onClick={handleRankUnlock} className="bg-gray-800 text-white px-5 py-3 rounded-xl text-sm font-bold active:scale-95 transition-all">解除</button>
+                  <button onClick={() => { if(passInput===SECRET_PASSWORD){setIsUnlocked(true);setPassInput("");}else{alert("パスワードが違います");} }} className="bg-gray-800 text-white px-5 py-3 rounded-xl text-sm font-bold active:scale-95 transition-all">解除</button>
                 </div>
               </div>
             ) : (
               <div className="animate-fade-in space-y-4">
                 <div className="flex justify-between items-center bg-gray-800 p-4 rounded-2xl text-white mb-6">
                   <h2 className="text-lg font-bold">📅 今月の全順位（月的表）</h2>
-                  <button onClick={() => setIsUnlocked(false)} className="text-[10px] bg-gray-600 hover:bg-gray-500 font-bold px-3 py-1.5 rounded-full transition-all">ロックする</button>
+                  <button onClick={() => setIsUnlocked(false)} className="text-[10px] bg-gray-600 hover:bg-gray-500 font-bold px-3 py-1.5 rounded-full transition-all">ロック</button>
                 </div>
-                
-                {/* 4つの項目で全員分表示（スクロール領域つき） */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
                     {title: "🎯 今月の的中率", data: monthlyRankings.hitRate, unit: "%", color: "text-red-500"},
@@ -563,20 +671,18 @@ export default function Home() {
               </div>
             )}
           </div>
-
         </div>
       )}
 
-      {/* ========== 📖 名簿タブ（🔐 パスワードロック追加） ========== */}
+      {/* ========== 📖 名簿タブ ========== */}
       {activeTab === "members" && (
         <div className="animate-fade-in space-y-6">
           {!isMembersUnlocked ? (
             <div className="bg-white p-8 rounded-3xl border border-dashed border-gray-300 text-center mt-4">
               <h2 className="text-lg font-bold text-gray-700 mb-2">👤 メンバー登録 (管理者用)</h2>
-              <p className="text-[10px] text-gray-400 mb-6 font-bold">勝手な追加を防ぐためロックされています</p>
               <div className="flex gap-2 max-w-xs mx-auto">
                 <input type="password" placeholder="パスワード" value={membersPassInput} onChange={(e)=>setMembersPassInput(e.target.value)} className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none" />
-                <button onClick={handleMembersUnlock} className="bg-gray-800 text-white px-5 py-3 rounded-xl text-sm font-bold active:scale-95 transition-all">解除</button>
+                <button onClick={() => { if(membersPassInput===SECRET_PASSWORD){setIsMembersUnlocked(true);setMembersPassInput("");}else{alert("パスワードが違います");} }} className="bg-gray-800 text-white px-5 py-3 rounded-xl text-sm font-bold active:scale-95 transition-all">解除</button>
               </div>
             </div>
           ) : (
@@ -597,7 +703,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* ========== 📅 予定表タブ ========== */}
       {activeTab === "schedule" && (
         <div className="animate-fade-in space-y-6">
           <div className="bg-white p-6 rounded-3xl border border-gray-200">
