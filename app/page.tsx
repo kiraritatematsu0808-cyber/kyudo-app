@@ -64,53 +64,75 @@ export default function Home() {
   const [newArcherName, setNewArcherName] = useState("");
   const [newArcherGrade, setNewArcherGrade] = useState(GRADES[3]);
 
-  // ========== 🔄 ログイン状態の監視と初期データ取得 ==========
+  // ========== 🔄 ログイン状態の監視（超安全版） ==========
   useEffect(() => {
-    const checkSession = async () => {
+    let isMounted = true;
+
+    const initAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        setUser(session?.user || null);
-        if (session?.user) {
-          await checkLinkedArcher(session.user.id);
-        } else {
-          setAuthLoading(false);
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        
+        const sessionUser = data?.session?.user || null;
+        if (isMounted) {
+          setUser(sessionUser);
+          if (sessionUser) {
+            await checkLinkedArcher(sessionUser.id);
+          } else {
+            setAuthLoading(false);
+          }
         }
       } catch (err) {
-        console.error("セッション確認エラー:", err);
-        setAuthLoading(false);
+        console.error("セッション取得エラー:", err);
+        if (isMounted) setAuthLoading(false);
       }
     };
-    
-    checkSession();
+
+    initAuth();
     fetchArchers();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setUser(session?.user || null);
-      if (session?.user) {
-        await checkLinkedArcher(session.user.id);
-      } else {
-        setLinkedArcher(null);
-        setAuthLoading(false);
+    let subscription: any = null;
+    try {
+      const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (!isMounted) return;
+        const sessionUser = session?.user || null;
+        setUser(sessionUser);
+        if (sessionUser) {
+          await checkLinkedArcher(sessionUser.id);
+        } else {
+          setLinkedArcher(null);
+          setAuthLoading(false);
+        }
+      });
+      subscription = data?.subscription;
+    } catch (err) {
+      console.error("AuthChangeエラー:", err);
+      if (isMounted) setAuthLoading(false);
+    }
+
+    // 🛡️ 最強の安全装置：5秒経ったら強制的にフリーズを解除する
+    const emergencyTimer = setTimeout(() => {
+      if (isMounted) setAuthLoading(false);
+    }, 5000);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(emergencyTimer);
+      if (subscription && typeof subscription.unsubscribe === 'function') {
+        subscription.unsubscribe();
       }
-    });
-    
-    return () => subscription.unsubscribe();
+    };
   }, []);
 
-  // 💡 フリーズの原因だった部分を修正！（データが0件でもパニックにならないようにしました）
   const checkLinkedArcher = async (userId: string) => {
     try {
       const { data, error } = await supabase.from("archers").select("*").eq("user_id", userId).limit(1);
-      if (data && data.length > 0) {
-        setLinkedArcher(data[0]); // データがあればセットする
-      } else {
-        setLinkedArcher(null); // データがなければ「未連携」にする
-      }
+      if (error) throw error;
+      setLinkedArcher(data && data.length > 0 ? data[0] : null);
     } catch (err) {
       console.error("名簿連携確認エラー:", err);
     } finally {
-      // エラーが起きても起きなくても、絶対にローディング画面を終了させる！
-      setAuthLoading(false);
+      setAuthLoading(false); // 絶対にローディングを解除
     }
   };
 
@@ -119,7 +141,6 @@ export default function Home() {
     if (data) setArchers(data);
   };
 
-  // タブ切り替え時のデータ取得
   useEffect(() => { 
     if (activeTab === "analysis" && linkedArcher) fetchAnalysisData();
     if (activeTab === "rankings") fetchRankingData(); 
@@ -140,7 +161,7 @@ export default function Home() {
       }
     } catch (err: any) { 
       alert("エラー: " + err.message); 
-      setAuthLoading(false); // エラー時もローディング解除
+      setAuthLoading(false); // エラー時も手動で解除
     } 
   };
 
@@ -290,7 +311,12 @@ export default function Home() {
   const fetchRankingData = async () => {
     try {
       const { data, error } = await supabase.from("practice_sessions").select("*");
-      if (error) throw error;
+      
+      // 🚨 原因究明用：ランキング取得に失敗したらアラートを出す！
+      if (error) {
+        alert("🚨 ランキングのデータ取得に失敗しました！エラー内容:\n" + error.message);
+        throw error;
+      }
       if (!data) return;
 
       const stats: { [name: string]: { name: string, hits: number, total: number, tachiHits: number, tachiTotal: number } } = {};
@@ -356,8 +382,15 @@ export default function Home() {
 
   // ========== 🖥️ UI 表示の分岐 ==========
 
-  // 1. ローディング画面
-  if (authLoading) return <div className="flex items-center justify-center min-h-screen bg-gray-50"><p className="text-blue-500 font-bold animate-pulse text-lg">読み込み中...</p></div>;
+  // 1. ローディング画面（🔥 緊急脱出ボタン搭載！）
+  if (authLoading) return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6 text-center">
+      <p className="text-blue-500 font-bold animate-pulse text-lg mb-8">読み込み中...</p>
+      <button onClick={() => setAuthLoading(false)} className="text-[12px] font-bold text-gray-400 border border-gray-300 rounded-full px-4 py-2 hover:bg-gray-100 active:scale-95 transition-all">
+        ※画面が進まない場合はここをタップ
+      </button>
+    </div>
+  );
 
   // 2. 未ログインの場合（ログイン・登録画面）
   if (!user) {
