@@ -89,7 +89,7 @@ export default function Home() {
     };
 
     initAuth();
-    fetchArchers();
+    fetchArchers(); // 👈 ここで名簿を取得しています
 
     let subscription: any = null;
     try {
@@ -110,7 +110,6 @@ export default function Home() {
       if (isMounted) setAuthLoading(false);
     }
 
-    // 🛡️ 最強の安全装置：5秒経ったら強制的にフリーズを解除する
     const emergencyTimer = setTimeout(() => {
       if (isMounted) setAuthLoading(false);
     }, 5000);
@@ -132,13 +131,26 @@ export default function Home() {
     } catch (err) {
       console.error("名簿連携確認エラー:", err);
     } finally {
-      setAuthLoading(false); // 絶対にローディングを解除
+      setAuthLoading(false);
     }
   };
 
+  // 💡 エラーをあぶり出すために強化した部分！！！
   const fetchArchers = async () => {
-    const { data } = await supabase.from("archers").select("*").order("name", { ascending: true });
-    if (data) setArchers(data);
+    try {
+      const { data, error } = await supabase.from("archers").select("*").order("name", { ascending: true });
+      if (error) {
+        // もしデータベースから名簿を取るのに失敗したら、画面にデカデカと理由を出す！
+        alert("🚨 名簿の取得に失敗しました！\n理由: " + error.message);
+        console.error("名簿取得エラー:", error);
+        return;
+      }
+      if (data) {
+        setArchers(data);
+      }
+    } catch (err: any) {
+      alert("🚨 予期せぬエラー: " + err.message);
+    }
   };
 
   useEffect(() => { 
@@ -161,7 +173,7 @@ export default function Home() {
       }
     } catch (err: any) { 
       alert("エラー: " + err.message); 
-      setAuthLoading(false); // エラー時も手動で解除
+      setAuthLoading(false); 
     } 
   };
 
@@ -312,7 +324,6 @@ export default function Home() {
     try {
       const { data, error } = await supabase.from("practice_sessions").select("*");
       
-      // 🚨 原因究明用：ランキング取得に失敗したらアラートを出す！
       if (error) {
         alert("🚨 ランキングのデータ取得に失敗しました！エラー内容:\n" + error.message);
         throw error;
