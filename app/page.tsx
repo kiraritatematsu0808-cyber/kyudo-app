@@ -27,7 +27,7 @@ export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
   const [linkArcherId, setLinkArcherId] = useState("");
 
-  // 💡 ナビゲーションのステート（親メニューと子タブ）
+  // 💡 ナビゲーションのステート
   const [mainMenu, setMainMenu] = useState<"input" | "data" | "others">("input");
   const [activeTab, setActiveTab] = useState<"individual" | "team" | "analysis" | "rankings" | "members" | "schedule">("individual");
   
@@ -67,7 +67,7 @@ export default function Home() {
   const [newArcherName, setNewArcherName] = useState("");
   const [newArcherGrade, setNewArcherGrade] = useState(GRADES[3]);
 
-  // ========== 🔄 ログイン状態の監視（✨安全装置復活！） ==========
+  // ========== 🔄 ログイン状態の監視（✨安全装置＆タブ連絡網） ==========
   useEffect(() => {
     let isMounted = true;
 
@@ -102,6 +102,7 @@ export default function Home() {
     initAuth();
     fetchArchers();
 
+    // 裏側でログイン状態が変わった時（別のタブでログアウトした時など）の連絡網
     let subscription: any = null;
     try {
       const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -123,12 +124,31 @@ export default function Home() {
 
     return () => {
       isMounted = false;
-      clearTimeout(emergencyTimer); // コンポーネントが消える時にタイマーを解除
+      clearTimeout(emergencyTimer);
       if (subscription && typeof subscription.unsubscribe === 'function') {
         subscription.unsubscribe();
       }
     };
   }, []);
+
+  // 💡 【大復活】タブを切り替えた瞬間に最新データを同期する「連絡網」
+  useEffect(() => {
+    const handleSync = () => {
+      // 画面が表示された瞬間、またはフォーカスが当たった瞬間に同期
+      if (document.visibilityState === "visible" && user) {
+        checkLinkedArcher(user.id);
+        fetchArchers();
+      }
+    };
+
+    window.addEventListener("visibilitychange", handleSync);
+    window.addEventListener("focus", handleSync);
+
+    return () => {
+      window.removeEventListener("visibilitychange", handleSync);
+      window.removeEventListener("focus", handleSync);
+    };
+  }, [user]);
 
   const checkLinkedArcher = async (userId: string) => {
     try {
@@ -162,7 +182,6 @@ export default function Home() {
     if (activeTab === "rankings") fetchRankingData(); 
   }, [activeTab, linkedArcher, anaTimeframe, anaCustomMonth, anaType]);
 
-  // 💡 親メニューを切り替えた時に、自動で小タブを合わせる処理
   const handleMenuSwitch = (menu: "input" | "data" | "others") => {
     setMainMenu(menu);
     if (menu === "input" && activeTab !== "individual" && activeTab !== "team") setActiveTab("individual");
@@ -200,12 +219,10 @@ export default function Home() {
     
     setAuthLoading(true);
     try {
-      // Supabaseに正しくログアウトをお願いする
       await supabase.auth.signOut();
     } catch (err) {
       console.warn("ログアウト通信でエラーが起きました（無視して画面を戻します）", err);
     } finally {
-      // 強引にブラウザのデータを消すのではなく、Reactの記憶（State）だけをリセットする
       setUser(null);
       setLinkedArcher(null);
       setAuthLoading(false);
@@ -453,7 +470,7 @@ export default function Home() {
     );
   }
 
-  // 2. 万が一のデータエラー画面（ここも安全にログアウトできるように修正）
+  // 2. 万が一のデータエラー画面
   if (user && !linkedArcher) {
     return (
       <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50 text-center">
