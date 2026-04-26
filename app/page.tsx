@@ -25,6 +25,8 @@ export default function Home() {
   const [authPassword, setAuthPassword] = useState("");
   const [isLoginMode, setIsLoginMode] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
+  
+  // 💡 新規登録時に選ぶ名簿ID
   const [linkArcherId, setLinkArcherId] = useState("");
 
   const [activeTab, setActiveTab] = useState<"individual" | "team" | "analysis" | "members" | "schedule" | "rankings">("individual");
@@ -123,19 +125,6 @@ export default function Home() {
     };
   }, []);
 
-  // 💡 追加！「別タブから戻ってきた時」に最新情報を確認する機能
-  useEffect(() => {
-    const handleFocus = () => {
-      if (user) {
-        checkLinkedArcher(user.id);
-        fetchArchers();
-      }
-    };
-    // 画面にフォーカスが当たった（タブを切り替えた）瞬間に再チェック！
-    window.addEventListener("focus", handleFocus);
-    return () => window.removeEventListener("focus", handleFocus);
-  }, [user]);
-
   const checkLinkedArcher = async (userId: string) => {
     try {
       const { data, error } = await supabase.from("archers").select("*").eq("user_id", userId).limit(1);
@@ -168,37 +157,39 @@ export default function Home() {
     if (activeTab === "rankings") fetchRankingData(); 
   }, [activeTab, linkedArcher, anaTimeframe, anaCustomMonth, anaType]);
 
-  // ========== 🔐 ログイン・登録・紐付け処理 ==========
+  // ========== 🔐 ログイン・登録・紐付け処理 (天才のアイデア適用版) ==========
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // 新規登録モードなのに名前を選んでいなかったらブロック！
+    if (!isLoginMode && !linkArcherId) {
+      alert("名簿から自分の名前を選択してください！");
+      return;
+    }
+
     setAuthLoading(true);
     try {
       if (isLoginMode) {
+        // 普通にログイン
         const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
         if (error) throw error;
       } else {
-        const { error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
+        // アカウント作成と同時に紐付けを行う！
+        const { data, error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
         if (error) throw error;
-        alert("登録完了！このままログインします。");
+
+        // アカウント作成に成功したら、直後に名簿をアップデート
+        if (data.user) {
+          const { error: linkError } = await supabase.from("archers").update({ user_id: data.user.id }).eq("id", linkArcherId);
+          if (linkError) throw linkError;
+        }
+
+        alert("アカウント登録と名簿の連携が完了しました！🎉");
+        // この後 onAuthStateChange が自動で発火し、そのままメイン画面に入れます
       }
     } catch (err: any) { 
       alert("エラー: " + err.message); 
       setAuthLoading(false); 
-    } 
-  };
-
-  const handleLinkArcher = async () => {
-    if (!linkArcherId) return;
-    setAuthLoading(true);
-    try {
-      const { error } = await supabase.from("archers").update({ user_id: user.id }).eq("id", linkArcherId);
-      if (error) throw error;
-      await checkLinkedArcher(user.id);
-      await fetchArchers();
-      alert("アカウントと名簿の紐付けが完了しました！🎉");
-    } catch (err: any) { 
-      alert("エラー: " + err.message); 
-      setAuthLoading(false);
     } 
   };
 
@@ -412,7 +403,10 @@ export default function Home() {
     </div>
   );
 
+  // 1. 未ログインの場合（ログイン・登録合体画面！）
   if (!user) {
+    const unlinkedArchers = archers.filter(a => !a.user_id);
+
     return (
       <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50">
         <div className="bg-white p-8 rounded-3xl shadow-lg border border-gray-100">
@@ -420,21 +414,34 @@ export default function Home() {
           <p className="text-xs text-center text-gray-400 font-bold mb-8">{isLoginMode ? "アカウントにログイン" : "新しくアカウントを作る"}</p>
           
           <form onSubmit={handleAuth} className="space-y-4">
+            {/* 新規登録の時だけ、名前選択のドロップダウンを表示！ */}
+            {!isLoginMode && (
+              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-2">
+                <label className="block text-[10px] font-bold text-blue-500 mb-2">① あなたの名前を名簿から選ぶ</label>
+                <select value={linkArcherId} onChange={e => setLinkArcherId(e.target.value)} required className="w-full p-3 bg-white border border-gray-200 rounded-xl outline-none text-gray-800 font-bold">
+                  <option value="">選択してください...</option>
+                  {unlinkedArchers.map(a => <option key={a.id} value={a.id}>{a.grade} {a.name}</option>)}
+                </select>
+                <p className="text-[10px] text-gray-400 mt-2">※名前がない場合は、先に管理者に名簿登録してもらってください。</p>
+              </div>
+            )}
+
             <div>
-              <label className="block text-[10px] font-bold text-gray-400 mb-1">メールアドレス</label>
+              <label className="block text-[10px] font-bold text-gray-400 mb-1">{!isLoginMode ? "② 登録するメールアドレス" : "メールアドレス"}</label>
               <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none" placeholder="example@email.com" />
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-gray-400 mb-1">パスワード</label>
+              <label className="block text-[10px] font-bold text-gray-400 mb-1">{!isLoginMode ? "③ 設定するパスワード" : "パスワード"}</label>
               <input type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none" placeholder="6文字以上" />
             </div>
+
             <button type="submit" className="w-full py-4 bg-blue-500 text-white font-bold rounded-xl shadow-md hover:bg-blue-600 active:scale-95 transition-all mt-4">
-              {isLoginMode ? "ログイン" : "登録する"}
+              {isLoginMode ? "ログイン" : "登録してアプリを始める"}
             </button>
           </form>
 
           <div className="mt-6 text-center border-t border-gray-100 pt-6">
-            <button onClick={() => setIsLoginMode(!isLoginMode)} className="text-xs font-bold text-gray-500 hover:text-blue-500 underline underline-offset-4">
+            <button onClick={() => { setIsLoginMode(!isLoginMode); setLinkArcherId(""); }} className="text-xs font-bold text-gray-500 hover:text-blue-500 underline underline-offset-4">
               {isLoginMode ? "初めての方はこちら（新規登録）" : "すでにアカウントをお持ちの方"}
             </button>
           </div>
@@ -443,41 +450,23 @@ export default function Home() {
     );
   }
 
-  if (!linkedArcher) {
+  // 2. 万が一、ログイン済みなのに紐付けデータが消えていた場合のセーフティネット（中間画面は廃止！）
+  if (user && !linkedArcher) {
     return (
-      <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50">
-        <div className="bg-white p-8 rounded-3xl shadow-lg border border-blue-100 text-center">
-          <span className="text-4xl block mb-4">🤝</span>
-          <h2 className="text-xl font-black text-gray-800 mb-2">名簿との連携</h2>
-          <p className="text-xs text-gray-500 mb-6 font-bold">あなたは名簿の中の誰ですか？<br/>自分の名前を選んでください。</p>
-          
-          <select value={linkArcherId} onChange={e => setLinkArcherId(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none mb-6">
-            <option value="">自分の名前を選択...</option>
-            {archers.map(a => (
-              <option key={a.id} value={a.id}>
-                {a.grade} {a.name} {a.user_id ? "(連携済み)" : ""}
-              </option>
-            ))}
-          </select>
-          
-          <button onClick={handleLinkArcher} disabled={!linkArcherId} className="w-full py-4 bg-green-500 text-white font-bold rounded-xl shadow-md disabled:opacity-50 active:scale-95 transition-all">
-            この名前で始める
+      <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50 text-center">
+        <div className="bg-white p-8 rounded-3xl shadow-lg border border-red-100">
+          <span className="text-4xl block mb-4">🚨</span>
+          <h2 className="text-lg font-black text-gray-800 mb-2">データエラー</h2>
+          <p className="text-xs text-gray-500 mb-6 font-bold">アカウントと名簿の紐付けが確認できませんでした。<br/>一度ログアウトしてやり直してください。</p>
+          <button onClick={handleLogout} className="w-full py-4 bg-gray-800 text-white font-bold rounded-xl shadow-md active:scale-95 transition-all">
+            ログアウト
           </button>
-
-          {/* 💡 追加！ 別のタブで紐付けた時に、手動で情報を更新するお助けボタン */}
-          <button onClick={() => { setAuthLoading(true); checkLinkedArcher(user.id); }} className="mt-6 text-[10px] text-gray-400 font-bold hover:text-blue-500 transition-all border-b border-gray-300 pb-1">
-            🔄 別のタブで紐付けた場合はここをタップ（情報更新）
-          </button>
-
-          <div className="mt-8 pt-4 border-t border-gray-100 text-[10px] text-gray-400 text-left">
-            <p>※デバッグ情報</p>
-            <p className="break-all">あなたのID: {user?.id}</p>
-          </div>
         </div>
       </main>
     );
   }
 
+  // 3. メインアプリ画面（正常時）
   return (
     <main className="p-4 sm:p-8 max-w-2xl mx-auto min-h-screen bg-gray-50 text-black font-sans pb-20">
       
