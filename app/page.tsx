@@ -25,11 +25,12 @@ export default function Home() {
   const [authPassword, setAuthPassword] = useState("");
   const [isLoginMode, setIsLoginMode] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
-  
-  // 💡 新規登録時に選ぶ名簿ID
   const [linkArcherId, setLinkArcherId] = useState("");
 
-  const [activeTab, setActiveTab] = useState<"individual" | "team" | "analysis" | "members" | "schedule" | "rankings">("individual");
+  // 💡 ナビゲーションのステート（親メニューと子タブ）
+  const [mainMenu, setMainMenu] = useState<"input" | "data" | "others">("input");
+  const [activeTab, setActiveTab] = useState<"individual" | "team" | "analysis" | "rankings" | "members" | "schedule">("individual");
+  
   const [archers, setArchers] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -69,23 +70,17 @@ export default function Home() {
   // ========== 🔄 ログイン状態の監視 ==========
   useEffect(() => {
     let isMounted = true;
-
     const initAuth = async () => {
       try {
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
-        
         const sessionUser = data?.session?.user || null;
         if (isMounted) {
           setUser(sessionUser);
-          if (sessionUser) {
-            await checkLinkedArcher(sessionUser.id);
-          } else {
-            setAuthLoading(false);
-          }
+          if (sessionUser) await checkLinkedArcher(sessionUser.id);
+          else setAuthLoading(false);
         }
       } catch (err) {
-        console.error("セッション取得エラー:", err);
         if (isMounted) setAuthLoading(false);
       }
     };
@@ -93,36 +88,15 @@ export default function Home() {
     initAuth();
     fetchArchers();
 
-    let subscription: any = null;
-    try {
-      const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
-        if (!isMounted) return;
-        const sessionUser = session?.user || null;
-        setUser(sessionUser);
-        if (sessionUser) {
-          await checkLinkedArcher(sessionUser.id);
-        } else {
-          setLinkedArcher(null);
-          setAuthLoading(false);
-        }
-      });
-      subscription = data?.subscription;
-    } catch (err) {
-      console.error("AuthChangeエラー:", err);
-      if (isMounted) setAuthLoading(false);
-    }
+    const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!isMounted) return;
+      const sessionUser = session?.user || null;
+      setUser(sessionUser);
+      if (sessionUser) await checkLinkedArcher(sessionUser.id);
+      else { setLinkedArcher(null); setAuthLoading(false); }
+    });
 
-    const emergencyTimer = setTimeout(() => {
-      if (isMounted) setAuthLoading(false);
-    }, 5000);
-
-    return () => {
-      isMounted = false;
-      clearTimeout(emergencyTimer);
-      if (subscription && typeof subscription.unsubscribe === 'function') {
-        subscription.unsubscribe();
-      }
-    };
+    return () => { isMounted = false; data?.subscription.unsubscribe(); };
   }, []);
 
   const checkLinkedArcher = async (userId: string) => {
@@ -130,26 +104,14 @@ export default function Home() {
       const { data, error } = await supabase.from("archers").select("*").eq("user_id", userId).limit(1);
       if (error) throw error;
       setLinkedArcher(data && data.length > 0 ? data[0] : null);
-    } catch (err) {
-      console.error("名簿連携確認エラー:", err);
     } finally {
       setAuthLoading(false);
     }
   };
 
   const fetchArchers = async () => {
-    try {
-      const { data, error } = await supabase.from("archers").select("*").order("name", { ascending: true });
-      if (error) {
-        console.error("名簿取得エラー:", error);
-        return;
-      }
-      if (data) {
-        setArchers(data);
-      }
-    } catch (err: any) {
-      console.error("予期せぬエラー: ", err.message);
-    }
+    const { data } = await supabase.from("archers").select("*").order("name", { ascending: true });
+    if (data) setArchers(data);
   };
 
   useEffect(() => { 
@@ -157,15 +119,18 @@ export default function Home() {
     if (activeTab === "rankings") fetchRankingData(); 
   }, [activeTab, linkedArcher, anaTimeframe, anaCustomMonth, anaType]);
 
-  // ========== 🔐 ログイン・登録・紐付け処理 (中間画面なし！) ==========
+  // 💡 親メニューを切り替えた時に、自動で小タブを合わせる処理
+  const handleMenuSwitch = (menu: "input" | "data" | "others") => {
+    setMainMenu(menu);
+    if (menu === "input" && activeTab !== "individual" && activeTab !== "team") setActiveTab("individual");
+    if (menu === "data" && activeTab !== "analysis" && activeTab !== "rankings") setActiveTab("analysis");
+    if (menu === "others" && activeTab !== "members" && activeTab !== "schedule") setActiveTab("members");
+  };
+
+  // ========== 🔐 ログイン・登録処理 ==========
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!isLoginMode && !linkArcherId) {
-      alert("名簿から自分の名前を選択してください！");
-      return;
-    }
-
+    if (!isLoginMode && !linkArcherId) { alert("自分の名前を選択してください！"); return; }
     setAuthLoading(true);
     try {
       if (isLoginMode) {
@@ -174,41 +139,25 @@ export default function Home() {
       } else {
         const { data, error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
         if (error) throw error;
-
-        if (data.user) {
-          const { error: linkError } = await supabase.from("archers").update({ user_id: data.user.id }).eq("id", linkArcherId);
-          if (linkError) throw linkError;
-        }
-
-        alert("アカウント登録と名簿の連携が完了しました！🎉");
+        if (data.user) await supabase.from("archers").update({ user_id: data.user.id }).eq("id", linkArcherId);
+        alert("登録完了！");
       }
-    } catch (err: any) { 
-      alert("エラー: " + err.message); 
-      setAuthLoading(false); 
-    } 
+    } catch (err: any) { alert("エラー: " + err.message); setAuthLoading(false); } 
   };
 
-  // 💡 最強の強制ログアウト処理（幽霊絶対倒すマン）
+  // 💥 絶対にフリーズさせない最強のログアウト処理
   const handleLogout = async () => {
-    if (confirm("ログアウトしますか？")) {
-      setAuthLoading(true); // 画面を一度読み込み中にしてフリーズ感をなくす
-      try {
-        await supabase.auth.signOut(); // 普通にログアウトを試みる
-      } catch (err) {
-        console.warn("ログアウトAPIエラー（無視して強制クリアします）:", err);
-      } finally {
-        // APIが失敗しても、ブラウザの記憶を強制的に消去（除霊）する！
-        setUser(null);
-        setLinkedArcher(null);
-        // localStorageの「sb-」から始まるSupabaseの幽霊データを全消去
-        Object.keys(localStorage).forEach(key => {
-          if (key.startsWith('sb-')) {
-            localStorage.removeItem(key);
-          }
-        });
-        setAuthLoading(false);
-      }
-    }
+    if (!confirm("ログアウトしますか？")) return;
+    
+    // 1. サーバーの返事を待たずに、問答無用で記憶を消し飛ばす
+    setUser(null);
+    setLinkedArcher(null);
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('sb-')) localStorage.removeItem(key);
+    });
+
+    // 2. 一応裏側でログアウト処理を投げておく（エラーになっても無視）
+    supabase.auth.signOut().catch(() => {});
   };
 
   // ========== 🏹 記録保存処理 ==========
@@ -338,11 +287,6 @@ export default function Home() {
   const fetchRankingData = async () => {
     try {
       const { data, error } = await supabase.from("practice_sessions").select("*");
-      
-      if (error) {
-        console.error("ランキング取得エラー:", error);
-        return;
-      }
       if (!data) return;
 
       const stats: { [name: string]: { name: string, hits: number, total: number, tachiHits: number, tachiTotal: number } } = {};
@@ -380,8 +324,7 @@ export default function Home() {
 
       const members = Object.values(stats).filter(m => m.total > 0);
       if (members.length > 0) {
-        const avgArrows = members.reduce((sum, m) => sum + m.total, 0) / members.length;
-        const threshold = avgArrows / 2; // 平均の半分
+        const threshold = (members.reduce((sum, m) => sum + m.total, 0) / members.length) / 2;
         setRankings({
           hitRate: members.filter(m => m.total >= threshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value).slice(0,5),
           totalArrows: members.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value).slice(0,5),
@@ -392,8 +335,7 @@ export default function Home() {
 
       const monthlyMembers = Object.values(monthlyStats).filter(m => m.total > 0);
       if (monthlyMembers.length > 0) {
-        const monthlyAvg = monthlyMembers.reduce((sum, m) => sum + m.total, 0) / monthlyMembers.length;
-        const mThreshold = monthlyAvg / 2; // 今月の平均の半分
+        const mThreshold = (monthlyMembers.reduce((sum, m) => sum + m.total, 0) / monthlyMembers.length) / 2;
         setMonthlyRankings({
           hitRate: monthlyMembers.filter(m => m.total >= mThreshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value),
           totalArrows: monthlyMembers.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value),
@@ -401,9 +343,7 @@ export default function Home() {
           tachiRate: monthlyMembers.filter(m => m.total >= mThreshold && m.tachiTotal > 0).map(m => ({ ...m, value: Math.round((m.tachiHits/m.tachiTotal)*100) })).sort((a,b)=>b.value-a.value)
         });
       }
-    } catch (err: any) {
-      console.error("ランキング取得エラー:", err.message);
-    }
+    } catch (err) {}
   };
 
   // ========== 🖥️ UI 表示の分岐 ==========
@@ -411,16 +351,12 @@ export default function Home() {
   if (authLoading) return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6 text-center">
       <p className="text-blue-500 font-bold animate-pulse text-lg mb-8">読み込み中...</p>
-      <button onClick={() => setAuthLoading(false)} className="text-[12px] font-bold text-gray-400 border border-gray-300 rounded-full px-4 py-2 hover:bg-gray-100 active:scale-95 transition-all">
-        ※画面が進まない場合はここをタップ
-      </button>
     </div>
   );
 
-  // 1. 未ログインの場合（ログイン・登録合体画面！）
+  // 1. 未ログインの場合
   if (!user) {
     const unlinkedArchers = archers.filter(a => !a.user_id);
-
     return (
       <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50">
         <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
@@ -428,7 +364,6 @@ export default function Home() {
           <p className="text-xs text-center text-gray-400 font-bold mb-8">{isLoginMode ? "アカウントにログイン" : "新しくアカウントを作る"}</p>
           
           <form onSubmit={handleAuth} className="space-y-4">
-            {/* 新規登録の時だけ、名前選択のドロップダウンを表示！ */}
             {!isLoginMode && (
               <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-2">
                 <label className="block text-[10px] font-bold text-blue-500 mb-2">① あなたの名前を名簿から選ぶ</label>
@@ -436,27 +371,23 @@ export default function Home() {
                   <option value="">選択してください...</option>
                   {unlinkedArchers.map(a => <option key={a.id} value={a.id}>{a.grade} {a.name}</option>)}
                 </select>
-                <p className="text-[10px] text-gray-400 mt-2 leading-tight">※名前がない場合は、先に管理者に名簿登録してもらってください。</p>
               </div>
             )}
-
             <div>
               <label className="block text-[10px] font-bold text-gray-400 mb-1">{!isLoginMode ? "② 登録するメールアドレス" : "メールアドレス"}</label>
-              <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none shadow-inner focus:bg-white focus:ring-2 focus:ring-blue-300 transition-all" placeholder="example@email.com" />
+              <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none shadow-inner focus:bg-white focus:ring-2 focus:ring-blue-300 transition-all" />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-gray-400 mb-1">{!isLoginMode ? "③ 設定するパスワード" : "パスワード"}</label>
-              <input type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none shadow-inner focus:bg-white focus:ring-2 focus:ring-blue-300 transition-all" placeholder="6文字以上" />
+              <input type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none shadow-inner focus:bg-white focus:ring-2 focus:ring-blue-300 transition-all" />
             </div>
-
-            {/* 💡 ボタンをより立体的で見やすく、押し心地よくアップデート！ */}
-            <button type="submit" className="w-full py-4 mt-6 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-black rounded-xl shadow-[0_4px_14px_0_rgba(59,130,246,0.39)] hover:shadow-[0_6px_20px_rgba(59,130,246,0.23)] hover:bg-blue-600 active:scale-95 transition-all duration-200">
+            <button type="submit" className="w-full py-4 mt-6 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-black rounded-xl shadow-[0_4px_14px_0_rgba(59,130,246,0.39)] hover:shadow-[0_6px_20px_rgba(59,130,246,0.23)] active:scale-95 transition-all">
               {isLoginMode ? "ログイン" : "登録してアプリを始める"}
             </button>
           </form>
 
           <div className="mt-6 text-center border-t border-gray-100 pt-6">
-            <button onClick={() => { setIsLoginMode(!isLoginMode); setLinkArcherId(""); }} className="text-xs font-bold text-gray-500 hover:text-blue-500 underline underline-offset-4 transition-colors">
+            <button onClick={() => { setIsLoginMode(!isLoginMode); setLinkArcherId(""); }} className="text-xs font-bold text-gray-500 hover:text-blue-500 underline underline-offset-4">
               {isLoginMode ? "初めての方はこちら（新規登録）" : "すでにアカウントをお持ちの方"}
             </button>
           </div>
@@ -465,41 +396,45 @@ export default function Home() {
     );
   }
 
-  // 2. 万が一、ログイン済みなのに紐付けデータが消えていた場合のセーフティネット
-  if (user && !linkedArcher) {
-    return (
-      <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50 text-center">
-        <div className="bg-white p-8 rounded-3xl shadow-lg border border-red-100">
-          <span className="text-4xl block mb-4">🚨</span>
-          <h2 className="text-lg font-black text-gray-800 mb-2">データエラー</h2>
-          <p className="text-xs text-gray-500 mb-6 font-bold">アカウントと名簿の紐付けが確認できませんでした。<br/>一度ログアウトしてやり直してください。</p>
-          <button onClick={handleLogout} className="w-full py-4 bg-gray-800 text-white font-bold rounded-xl shadow-md active:scale-95 transition-all">
-            強制ログアウト
-          </button>
-        </div>
-      </main>
-    );
-  }
-
-  // 3. メインアプリ画面（正常時）
+  // 2. メインアプリ画面
   return (
     <main className="p-4 sm:p-8 max-w-2xl mx-auto min-h-screen bg-gray-50 text-black font-sans pb-20">
       
-      {/* 🟢 ヘッダー部分 */}
+      {/* 🟢 ヘッダー */}
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold">🎯 弓道Webアプリ</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">🎯 弓道Webアプリ</h1>
         <button onClick={handleLogout} className="text-[10px] font-bold text-gray-400 border border-gray-200 px-4 py-2 rounded-full hover:bg-red-50 hover:text-red-500 hover:border-red-200 active:scale-95 transition-all">
           ログアウト
         </button>
       </div>
 
-      <div className="flex bg-gray-200 p-1 rounded-2xl mb-8 shadow-inner overflow-x-auto">
-        {[
-          {id: "individual", label: "個人"}, {id: "team", label: "団体"}, {id: "analysis", label: "分析"},
-          {id: "rankings", label: "🏆"}, {id: "members", label: "名簿"}, {id: "schedule", label: "予定"}
-        ].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex-1 min-w-[50px] py-2.5 text-[10px] sm:text-xs font-bold rounded-xl transition-all px-1 ${activeTab === tab.id ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:bg-gray-300"}`}>{tab.label}</button>
-        ))}
+      {/* 💡 メニュー構造を大幅スッキリ化！！（親メニュー） */}
+      <div className="flex bg-gray-800 p-1.5 rounded-2xl mb-3 shadow-md">
+        <button onClick={() => handleMenuSwitch("input")} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${mainMenu === "input" ? "bg-white text-gray-800 shadow-sm" : "text-gray-400 hover:text-white"}`}>📝 入力</button>
+        <button onClick={() => handleMenuSwitch("data")} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${mainMenu === "data" ? "bg-white text-gray-800 shadow-sm" : "text-gray-400 hover:text-white"}`}>📊 データ</button>
+        <button onClick={() => handleMenuSwitch("others")} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${mainMenu === "others" ? "bg-white text-gray-800 shadow-sm" : "text-gray-400 hover:text-white"}`}>⚙️ その他</button>
+      </div>
+
+      {/* 💡 子タブ（親メニューに合わせて中身が変わる） */}
+      <div className="flex bg-gray-200 p-1 rounded-2xl mb-8 shadow-inner">
+        {mainMenu === "input" && (
+          <>
+            <button onClick={() => setActiveTab("individual")} className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${activeTab === "individual" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:bg-gray-300"}`}>👤 個人</button>
+            <button onClick={() => setActiveTab("team")} className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${activeTab === "team" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:bg-gray-300"}`}>👥 団体</button>
+          </>
+        )}
+        {mainMenu === "data" && (
+          <>
+            <button onClick={() => setActiveTab("analysis")} className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${activeTab === "analysis" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:bg-gray-300"}`}>📈 個人の分析</button>
+            <button onClick={() => setActiveTab("rankings")} className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${activeTab === "rankings" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:bg-gray-300"}`}>🏆 全体の順位</button>
+          </>
+        )}
+        {mainMenu === "others" && (
+          <>
+            <button onClick={() => setActiveTab("members")} className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${activeTab === "members" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:bg-gray-300"}`}>📖 名簿の管理</button>
+            <button onClick={() => setActiveTab("schedule")} className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${activeTab === "schedule" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:bg-gray-300"}`}>📅 月間予定表</button>
+          </>
+        )}
       </div>
 
       {/* ========== 👤 個人タブ ========== */}
@@ -511,7 +446,7 @@ export default function Home() {
               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-2xl shadow-sm border border-blue-100">👤</div>
               <div>
                 <p className="text-[10px] font-bold text-blue-500 mb-0.5">ログイン中の部員</p>
-                <p className="text-lg font-black text-gray-800">{linkedArcher.grade} {linkedArcher.name}</p>
+                <p className="text-lg font-black text-gray-800">{linkedArcher?.grade} {linkedArcher?.name}</p>
               </div>
             </div>
 
@@ -542,7 +477,6 @@ export default function Home() {
             <button onClick={() => indRecords.length > 1 && setIndRecords(indRecords.slice(0, -1))} className="py-4 bg-white border border-gray-200 text-gray-500 font-bold rounded-2xl shadow-sm active:scale-95 transition-all">➖ 減らす</button>
             <button onClick={() => setIndRecords([...indRecords, { id: indRecords.length + 1, arrows: ["未", "未", "未", "未"] }])} className="py-4 bg-gray-800 text-white font-bold rounded-2xl shadow-sm active:scale-95 transition-all">➕ 立を追加</button>
           </div>
-          {/* 💡 保存ボタンも見やすくリッチに！ */}
           <button onClick={saveIndividual} disabled={isSaving} className="w-full py-5 bg-gradient-to-r from-green-400 to-green-500 text-white text-xl font-black rounded-2xl shadow-[0_4px_14px_0_rgba(74,222,128,0.39)] hover:shadow-[0_6px_20px_rgba(74,222,128,0.23)] active:scale-95 transition-all disabled:opacity-50">
             {isSaving ? "送信中..." : "💾 保存してリセット"}
           </button>
@@ -627,7 +561,7 @@ export default function Home() {
             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-2xl shadow-sm border border-blue-100">📊</div>
             <div>
               <p className="text-[10px] font-bold text-blue-500 mb-0.5">あなたの分析データ</p>
-              <p className="text-lg font-black text-gray-800">{linkedArcher.grade} {linkedArcher.name}</p>
+              <p className="text-lg font-black text-gray-800">{linkedArcher?.grade} {linkedArcher?.name}</p>
             </div>
           </div>
 
@@ -794,6 +728,7 @@ export default function Home() {
         </div>
       )}
 
+      {/* ========== 📅 予定タブ ========== */}
       {activeTab === "schedule" && (
         <div className="animate-fade-in space-y-6">
           <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm">
