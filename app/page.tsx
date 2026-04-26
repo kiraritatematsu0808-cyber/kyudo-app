@@ -67,11 +67,11 @@ export default function Home() {
   const [newArcherName, setNewArcherName] = useState("");
   const [newArcherGrade, setNewArcherGrade] = useState(GRADES[3]);
 
-  // ========== 🔄 ログイン状態の監視（✨安全装置＆タブ連絡網） ==========
+  // ========== 🔄 ログイン状態の監視 ==========
   useEffect(() => {
     let isMounted = true;
 
-    // 🚨 5秒経っても返事がなければ強制的にローディングを終わらせる安全装置
+    // 🚨 安全装置（5秒タイマー）
     const emergencyTimer = setTimeout(() => {
       if (isMounted) {
         console.warn("通信がタイムアウトしました。強制的に画面を表示します。");
@@ -86,10 +86,12 @@ export default function Home() {
         
         const sessionUser = data?.session?.user || null;
         if (isMounted) {
-          setUser(sessionUser);
+          // 💡 初回ロード時：幕を閉じたままデータを待つ
           if (sessionUser) {
+            setUser(sessionUser);
             await checkLinkedArcher(sessionUser.id);
           } else {
+            setUser(null);
             setAuthLoading(false);
           }
         }
@@ -102,16 +104,21 @@ export default function Home() {
     initAuth();
     fetchArchers();
 
-    // 裏側でログイン状態が変わった時（別のタブでログアウトした時など）の連絡網
+    // 💡 複数タブ時の「すれ違いバグ」を完全に殺す処理
     let subscription: any = null;
     try {
       const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
         if (!isMounted) return;
         const sessionUser = session?.user || null;
-        setUser(sessionUser);
+        
         if (sessionUser) {
+          // ✨ 【超重要】役者が来たら、まずは「絶対に幕（Loading）を閉める」！
+          // これがないと、衣装（名簿データ）が届く前にエラー画面が丸見えになってしまいます。
+          setAuthLoading(true); 
+          setUser(sessionUser);
           await checkLinkedArcher(sessionUser.id);
         } else {
+          setUser(null);
           setLinkedArcher(null);
           setAuthLoading(false);
         }
@@ -131,10 +138,10 @@ export default function Home() {
     };
   }, []);
 
-  // 💡 【大復活】タブを切り替えた瞬間に最新データを同期する「連絡網」
+  // 💡 タブを切り替えた瞬間に最新データを同期する「連絡網」
   useEffect(() => {
     const handleSync = () => {
-      // 画面が表示された瞬間、またはフォーカスが当たった瞬間に同期
+      // 画面が表示された瞬間、裏側でこっそり最新データを取ってくる
       if (document.visibilityState === "visible" && user) {
         checkLinkedArcher(user.id);
         fetchArchers();
@@ -158,6 +165,7 @@ export default function Home() {
     } catch (err) {
       console.error("名簿連携確認エラー:", err);
     } finally {
+      // ✨ 衣装（名簿データ）が完全に準備できたら、ここで初めて幕を開ける！
       setAuthLoading(false);
     }
   };
@@ -165,13 +173,8 @@ export default function Home() {
   const fetchArchers = async () => {
     try {
       const { data, error } = await supabase.from("archers").select("*").order("name", { ascending: true });
-      if (error) {
-        console.error("名簿取得エラー:", error);
-        return;
-      }
-      if (data) {
-        setArchers(data);
-      }
+      if (error) return;
+      if (data) setArchers(data);
     } catch (err: any) {
       console.error("予期せぬエラー: ", err.message);
     }
@@ -198,6 +201,7 @@ export default function Home() {
       if (isLoginMode) {
         const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
         if (error) throw error;
+        // ログイン成功後は onAuthStateChange が感知して自動で進みます
       } else {
         const { data, error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
         if (error) throw error;
