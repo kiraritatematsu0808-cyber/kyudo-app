@@ -67,20 +67,34 @@ export default function Home() {
   const [newArcherName, setNewArcherName] = useState("");
   const [newArcherGrade, setNewArcherGrade] = useState(GRADES[3]);
 
-  // ========== 🔄 ログイン状態の監視 ==========
+  // ========== 🔄 ログイン状態の監視（✨安全装置復活！） ==========
   useEffect(() => {
     let isMounted = true;
+
+    // 🚨 5秒経っても返事がなければ強制的にローディングを終わらせる安全装置
+    const emergencyTimer = setTimeout(() => {
+      if (isMounted) {
+        console.warn("通信がタイムアウトしました。強制的に画面を表示します。");
+        setAuthLoading(false);
+      }
+    }, 5000);
+
     const initAuth = async () => {
       try {
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
+        
         const sessionUser = data?.session?.user || null;
         if (isMounted) {
           setUser(sessionUser);
-          if (sessionUser) await checkLinkedArcher(sessionUser.id);
-          else setAuthLoading(false);
+          if (sessionUser) {
+            await checkLinkedArcher(sessionUser.id);
+          } else {
+            setAuthLoading(false);
+          }
         }
       } catch (err) {
+        console.error("セッション取得エラー:", err);
         if (isMounted) setAuthLoading(false);
       }
     };
@@ -88,15 +102,32 @@ export default function Home() {
     initAuth();
     fetchArchers();
 
-    const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!isMounted) return;
-      const sessionUser = session?.user || null;
-      setUser(sessionUser);
-      if (sessionUser) await checkLinkedArcher(sessionUser.id);
-      else { setLinkedArcher(null); setAuthLoading(false); }
-    });
+    let subscription: any = null;
+    try {
+      const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (!isMounted) return;
+        const sessionUser = session?.user || null;
+        setUser(sessionUser);
+        if (sessionUser) {
+          await checkLinkedArcher(sessionUser.id);
+        } else {
+          setLinkedArcher(null);
+          setAuthLoading(false);
+        }
+      });
+      subscription = data?.subscription;
+    } catch (err) {
+      console.error("AuthChangeエラー:", err);
+      if (isMounted) setAuthLoading(false);
+    }
 
-    return () => { isMounted = false; data?.subscription.unsubscribe(); };
+    return () => {
+      isMounted = false;
+      clearTimeout(emergencyTimer); // コンポーネントが消える時にタイマーを解除
+      if (subscription && typeof subscription.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
+    };
   }, []);
 
   const checkLinkedArcher = async (userId: string) => {
@@ -104,14 +135,26 @@ export default function Home() {
       const { data, error } = await supabase.from("archers").select("*").eq("user_id", userId).limit(1);
       if (error) throw error;
       setLinkedArcher(data && data.length > 0 ? data[0] : null);
+    } catch (err) {
+      console.error("名簿連携確認エラー:", err);
     } finally {
       setAuthLoading(false);
     }
   };
 
   const fetchArchers = async () => {
-    const { data } = await supabase.from("archers").select("*").order("name", { ascending: true });
-    if (data) setArchers(data);
+    try {
+      const { data, error } = await supabase.from("archers").select("*").order("name", { ascending: true });
+      if (error) {
+        console.error("名簿取得エラー:", error);
+        return;
+      }
+      if (data) {
+        setArchers(data);
+      }
+    } catch (err: any) {
+      console.error("予期せぬエラー: ", err.message);
+    }
   };
 
   useEffect(() => { 
@@ -130,7 +173,7 @@ export default function Home() {
   // ========== 🔐 ログイン・登録処理 ==========
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isLoginMode && !linkArcherId) { alert("自分の名前を選択してください！"); return; }
+    if (!isLoginMode && !linkArcherId) { alert("名簿から自分の名前を選択してください！"); return; }
     setAuthLoading(true);
     try {
       if (isLoginMode) {
@@ -139,25 +182,34 @@ export default function Home() {
       } else {
         const { data, error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
         if (error) throw error;
-        if (data.user) await supabase.from("archers").update({ user_id: data.user.id }).eq("id", linkArcherId);
-        alert("登録完了！");
+        if (data.user) {
+          const { error: linkError } = await supabase.from("archers").update({ user_id: data.user.id }).eq("id", linkArcherId);
+          if (linkError) throw linkError;
+        }
+        alert("アカウント登録と名簿の連携が完了しました！🎉");
       }
-    } catch (err: any) { alert("エラー: " + err.message); setAuthLoading(false); } 
+    } catch (err: any) { 
+      alert("エラー: " + err.message); 
+      setAuthLoading(false); 
+    } 
   };
 
-  // 💥 絶対にフリーズさせない最強のログアウト処理
+  // ✨ システムを壊さない、正しいログアウト処理
   const handleLogout = async () => {
     if (!confirm("ログアウトしますか？")) return;
     
-    // 1. サーバーの返事を待たずに、問答無用で記憶を消し飛ばす
-    setUser(null);
-    setLinkedArcher(null);
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('sb-')) localStorage.removeItem(key);
-    });
-
-    // 2. 一応裏側でログアウト処理を投げておく（エラーになっても無視）
-    supabase.auth.signOut().catch(() => {});
+    setAuthLoading(true);
+    try {
+      // Supabaseに正しくログアウトをお願いする
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn("ログアウト通信でエラーが起きました（無視して画面を戻します）", err);
+    } finally {
+      // 強引にブラウザのデータを消すのではなく、Reactの記憶（State）だけをリセットする
+      setUser(null);
+      setLinkedArcher(null);
+      setAuthLoading(false);
+    }
   };
 
   // ========== 🏹 記録保存処理 ==========
@@ -324,7 +376,8 @@ export default function Home() {
 
       const members = Object.values(stats).filter(m => m.total > 0);
       if (members.length > 0) {
-        const threshold = (members.reduce((sum, m) => sum + m.total, 0) / members.length) / 2;
+        const avgArrows = members.reduce((sum, m) => sum + m.total, 0) / members.length;
+        const threshold = avgArrows / 2; // 平均の半分
         setRankings({
           hitRate: members.filter(m => m.total >= threshold).map(m => ({ ...m, value: Math.round((m.hits/m.total)*100) })).sort((a,b)=>b.value-a.value).slice(0,5),
           totalArrows: members.map(m => ({ ...m, value: m.total })).sort((a,b)=>b.value-a.value).slice(0,5),
@@ -343,14 +396,18 @@ export default function Home() {
           tachiRate: monthlyMembers.filter(m => m.total >= mThreshold && m.tachiTotal > 0).map(m => ({ ...m, value: Math.round((m.tachiHits/m.tachiTotal)*100) })).sort((a,b)=>b.value-a.value)
         });
       }
-    } catch (err) {}
+    } catch (err: any) {
+      console.error("ランキング取得エラー:", err.message);
+    }
   };
 
   // ========== 🖥️ UI 表示の分岐 ==========
 
   if (authLoading) return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6 text-center">
-      <p className="text-blue-500 font-bold animate-pulse text-lg mb-8">読み込み中...</p>
+      <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4 mx-auto"></div>
+      <p className="text-blue-500 font-bold animate-pulse text-sm">システムを確認中...</p>
+      <p className="text-[10px] text-gray-400 mt-4">※5秒後に自動的に画面が切り替わります</p>
     </div>
   );
 
@@ -396,7 +453,23 @@ export default function Home() {
     );
   }
 
-  // 2. メインアプリ画面
+  // 2. 万が一のデータエラー画面（ここも安全にログアウトできるように修正）
+  if (user && !linkedArcher) {
+    return (
+      <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50 text-center">
+        <div className="bg-white p-8 rounded-3xl shadow-lg border border-red-100">
+          <span className="text-4xl block mb-4">🚨</span>
+          <h2 className="text-lg font-black text-gray-800 mb-2">データが見つかりません</h2>
+          <p className="text-xs text-gray-500 mb-6 font-bold">名簿との紐付けデータが確認できません。<br/>一度ログアウトしてやり直してください。</p>
+          <button onClick={handleLogout} className="w-full py-4 bg-gray-800 text-white font-bold rounded-xl shadow-md active:scale-95 transition-all">
+            ログアウトして戻る
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // 3. メインアプリ画面
   return (
     <main className="p-4 sm:p-8 max-w-2xl mx-auto min-h-screen bg-gray-50 text-black font-sans pb-20">
       
@@ -408,14 +481,14 @@ export default function Home() {
         </button>
       </div>
 
-      {/* 💡 メニュー構造を大幅スッキリ化！！（親メニュー） */}
+      {/* 💡 親メニュー（2段構えの1段目） */}
       <div className="flex bg-gray-800 p-1.5 rounded-2xl mb-3 shadow-md">
         <button onClick={() => handleMenuSwitch("input")} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${mainMenu === "input" ? "bg-white text-gray-800 shadow-sm" : "text-gray-400 hover:text-white"}`}>📝 入力</button>
         <button onClick={() => handleMenuSwitch("data")} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${mainMenu === "data" ? "bg-white text-gray-800 shadow-sm" : "text-gray-400 hover:text-white"}`}>📊 データ</button>
         <button onClick={() => handleMenuSwitch("others")} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${mainMenu === "others" ? "bg-white text-gray-800 shadow-sm" : "text-gray-400 hover:text-white"}`}>⚙️ その他</button>
       </div>
 
-      {/* 💡 子タブ（親メニューに合わせて中身が変わる） */}
+      {/* 💡 子タブ（2段構えの2段目） */}
       <div className="flex bg-gray-200 p-1 rounded-2xl mb-8 shadow-inner">
         {mainMenu === "input" && (
           <>
