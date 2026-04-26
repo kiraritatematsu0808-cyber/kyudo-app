@@ -157,11 +157,10 @@ export default function Home() {
     if (activeTab === "rankings") fetchRankingData(); 
   }, [activeTab, linkedArcher, anaTimeframe, anaCustomMonth, anaType]);
 
-  // ========== 🔐 ログイン・登録・紐付け処理 (天才のアイデア適用版) ==========
+  // ========== 🔐 ログイン・登録・紐付け処理 (中間画面なし！) ==========
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // 新規登録モードなのに名前を選んでいなかったらブロック！
     if (!isLoginMode && !linkArcherId) {
       alert("名簿から自分の名前を選択してください！");
       return;
@@ -170,22 +169,18 @@ export default function Home() {
     setAuthLoading(true);
     try {
       if (isLoginMode) {
-        // 普通にログイン
         const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
         if (error) throw error;
       } else {
-        // アカウント作成と同時に紐付けを行う！
         const { data, error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
         if (error) throw error;
 
-        // アカウント作成に成功したら、直後に名簿をアップデート
         if (data.user) {
           const { error: linkError } = await supabase.from("archers").update({ user_id: data.user.id }).eq("id", linkArcherId);
           if (linkError) throw linkError;
         }
 
         alert("アカウント登録と名簿の連携が完了しました！🎉");
-        // この後 onAuthStateChange が自動で発火し、そのままメイン画面に入れます
       }
     } catch (err: any) { 
       alert("エラー: " + err.message); 
@@ -193,8 +188,27 @@ export default function Home() {
     } 
   };
 
+  // 💡 最強の強制ログアウト処理（幽霊絶対倒すマン）
   const handleLogout = async () => {
-    if(confirm("ログアウトしますか？")) await supabase.auth.signOut();
+    if (confirm("ログアウトしますか？")) {
+      setAuthLoading(true); // 画面を一度読み込み中にしてフリーズ感をなくす
+      try {
+        await supabase.auth.signOut(); // 普通にログアウトを試みる
+      } catch (err) {
+        console.warn("ログアウトAPIエラー（無視して強制クリアします）:", err);
+      } finally {
+        // APIが失敗しても、ブラウザの記憶を強制的に消去（除霊）する！
+        setUser(null);
+        setLinkedArcher(null);
+        // localStorageの「sb-」から始まるSupabaseの幽霊データを全消去
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith('sb-')) {
+            localStorage.removeItem(key);
+          }
+        });
+        setAuthLoading(false);
+      }
+    }
   };
 
   // ========== 🏹 記録保存処理 ==========
@@ -409,7 +423,7 @@ export default function Home() {
 
     return (
       <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50">
-        <div className="bg-white p-8 rounded-3xl shadow-lg border border-gray-100">
+        <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
           <h1 className="text-2xl font-black text-center mb-2 text-gray-800">🎯 弓道ノート</h1>
           <p className="text-xs text-center text-gray-400 font-bold mb-8">{isLoginMode ? "アカウントにログイン" : "新しくアカウントを作る"}</p>
           
@@ -418,30 +432,31 @@ export default function Home() {
             {!isLoginMode && (
               <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-2">
                 <label className="block text-[10px] font-bold text-blue-500 mb-2">① あなたの名前を名簿から選ぶ</label>
-                <select value={linkArcherId} onChange={e => setLinkArcherId(e.target.value)} required className="w-full p-3 bg-white border border-gray-200 rounded-xl outline-none text-gray-800 font-bold">
+                <select value={linkArcherId} onChange={e => setLinkArcherId(e.target.value)} required className="w-full p-3 bg-white border border-gray-200 rounded-xl outline-none text-gray-800 font-bold shadow-sm focus:ring-2 focus:ring-blue-300 transition-all">
                   <option value="">選択してください...</option>
                   {unlinkedArchers.map(a => <option key={a.id} value={a.id}>{a.grade} {a.name}</option>)}
                 </select>
-                <p className="text-[10px] text-gray-400 mt-2">※名前がない場合は、先に管理者に名簿登録してもらってください。</p>
+                <p className="text-[10px] text-gray-400 mt-2 leading-tight">※名前がない場合は、先に管理者に名簿登録してもらってください。</p>
               </div>
             )}
 
             <div>
               <label className="block text-[10px] font-bold text-gray-400 mb-1">{!isLoginMode ? "② 登録するメールアドレス" : "メールアドレス"}</label>
-              <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none" placeholder="example@email.com" />
+              <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none shadow-inner focus:bg-white focus:ring-2 focus:ring-blue-300 transition-all" placeholder="example@email.com" />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-gray-400 mb-1">{!isLoginMode ? "③ 設定するパスワード" : "パスワード"}</label>
-              <input type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none" placeholder="6文字以上" />
+              <input type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none shadow-inner focus:bg-white focus:ring-2 focus:ring-blue-300 transition-all" placeholder="6文字以上" />
             </div>
 
-            <button type="submit" className="w-full py-4 bg-blue-500 text-white font-bold rounded-xl shadow-md hover:bg-blue-600 active:scale-95 transition-all mt-4">
+            {/* 💡 ボタンをより立体的で見やすく、押し心地よくアップデート！ */}
+            <button type="submit" className="w-full py-4 mt-6 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-black rounded-xl shadow-[0_4px_14px_0_rgba(59,130,246,0.39)] hover:shadow-[0_6px_20px_rgba(59,130,246,0.23)] hover:bg-blue-600 active:scale-95 transition-all duration-200">
               {isLoginMode ? "ログイン" : "登録してアプリを始める"}
             </button>
           </form>
 
           <div className="mt-6 text-center border-t border-gray-100 pt-6">
-            <button onClick={() => { setIsLoginMode(!isLoginMode); setLinkArcherId(""); }} className="text-xs font-bold text-gray-500 hover:text-blue-500 underline underline-offset-4">
+            <button onClick={() => { setIsLoginMode(!isLoginMode); setLinkArcherId(""); }} className="text-xs font-bold text-gray-500 hover:text-blue-500 underline underline-offset-4 transition-colors">
               {isLoginMode ? "初めての方はこちら（新規登録）" : "すでにアカウントをお持ちの方"}
             </button>
           </div>
@@ -450,7 +465,7 @@ export default function Home() {
     );
   }
 
-  // 2. 万が一、ログイン済みなのに紐付けデータが消えていた場合のセーフティネット（中間画面は廃止！）
+  // 2. 万が一、ログイン済みなのに紐付けデータが消えていた場合のセーフティネット
   if (user && !linkedArcher) {
     return (
       <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50 text-center">
@@ -459,7 +474,7 @@ export default function Home() {
           <h2 className="text-lg font-black text-gray-800 mb-2">データエラー</h2>
           <p className="text-xs text-gray-500 mb-6 font-bold">アカウントと名簿の紐付けが確認できませんでした。<br/>一度ログアウトしてやり直してください。</p>
           <button onClick={handleLogout} className="w-full py-4 bg-gray-800 text-white font-bold rounded-xl shadow-md active:scale-95 transition-all">
-            ログアウト
+            強制ログアウト
           </button>
         </div>
       </main>
@@ -473,7 +488,7 @@ export default function Home() {
       {/* 🟢 ヘッダー部分 */}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl sm:text-3xl font-bold">🎯 弓道Webアプリ</h1>
-        <button onClick={handleLogout} className="text-[10px] font-bold text-gray-400 border border-gray-200 px-3 py-1.5 rounded-full hover:bg-gray-100">
+        <button onClick={handleLogout} className="text-[10px] font-bold text-gray-400 border border-gray-200 px-4 py-2 rounded-full hover:bg-red-50 hover:text-red-500 hover:border-red-200 active:scale-95 transition-all">
           ログアウト
         </button>
       </div>
@@ -517,17 +532,18 @@ export default function Home() {
                 <p className="text-center text-gray-400 text-xs font-black mb-4">{rIndex + 1}立目</p>
                 <div className="flex justify-center gap-4">
                   {record.arrows.map((state, aIndex) => (
-                    <button key={aIndex} onClick={() => toggleIndArrow(rIndex, aIndex)} className={`flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full text-3xl font-bold transition-all border-4 ${state === "○" ? "bg-red-500 text-white border-red-200" : state === "×" ? "bg-blue-500 text-white border-blue-200" : "bg-gray-100 text-gray-300 border-gray-200"}`}>{state}</button>
+                    <button key={aIndex} onClick={() => toggleIndArrow(rIndex, aIndex)} className={`flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full text-3xl font-bold transition-transform active:scale-90 border-4 ${state === "○" ? "bg-red-500 text-white border-red-200 shadow-md" : state === "×" ? "bg-blue-500 text-white border-blue-200 shadow-md" : "bg-gray-100 text-gray-300 border-gray-200"}`}>{state}</button>
                   ))}
                 </div>
               </div>
             ))}
           </div>
           <div className="grid grid-cols-2 gap-4 mb-4">
-            <button onClick={() => indRecords.length > 1 && setIndRecords(indRecords.slice(0, -1))} className="py-4 bg-white border border-gray-200 text-gray-500 font-bold rounded-2xl">➖ 減らす</button>
-            <button onClick={() => setIndRecords([...indRecords, { id: indRecords.length + 1, arrows: ["未", "未", "未", "未"] }])} className="py-4 bg-gray-800 text-white font-bold rounded-2xl">➕ 立を追加</button>
+            <button onClick={() => indRecords.length > 1 && setIndRecords(indRecords.slice(0, -1))} className="py-4 bg-white border border-gray-200 text-gray-500 font-bold rounded-2xl shadow-sm active:scale-95 transition-all">➖ 減らす</button>
+            <button onClick={() => setIndRecords([...indRecords, { id: indRecords.length + 1, arrows: ["未", "未", "未", "未"] }])} className="py-4 bg-gray-800 text-white font-bold rounded-2xl shadow-sm active:scale-95 transition-all">➕ 立を追加</button>
           </div>
-          <button onClick={saveIndividual} disabled={isSaving} className="w-full py-5 bg-green-500 text-white text-xl font-bold rounded-2xl shadow-lg active:scale-95 disabled:opacity-50">
+          {/* 💡 保存ボタンも見やすくリッチに！ */}
+          <button onClick={saveIndividual} disabled={isSaving} className="w-full py-5 bg-gradient-to-r from-green-400 to-green-500 text-white text-xl font-black rounded-2xl shadow-[0_4px_14px_0_rgba(74,222,128,0.39)] hover:shadow-[0_6px_20px_rgba(74,222,128,0.23)] active:scale-95 transition-all disabled:opacity-50">
             {isSaving ? "送信中..." : "💾 保存してリセット"}
           </button>
         </div>
@@ -586,7 +602,7 @@ export default function Home() {
                         <div className="w-12"><span className="font-bold text-gray-700 text-[10px] truncate block">{teamMembers[mIndex]?.name || "未選択"}</span></div>
                         <div className="flex gap-2 sm:gap-3 flex-1 justify-end">
                           {personArrows.map((state, aIndex) => (
-                            <button key={aIndex} onClick={() => toggleTeamArrow(rIndex, mIndex, aIndex)} className={`flex items-center justify-center w-10 h-10 rounded-full text-lg font-bold transition-all border-2 ${state === "○" ? "bg-red-500 text-white border-red-100" : state === "×" ? "bg-blue-500 text-white border-blue-100" : "bg-gray-100 text-gray-300 border-gray-100"}`}>{state}</button>
+                            <button key={aIndex} onClick={() => toggleTeamArrow(rIndex, mIndex, aIndex)} className={`flex items-center justify-center w-10 h-10 rounded-full text-lg font-bold transition-transform active:scale-90 border-2 ${state === "○" ? "bg-red-500 text-white border-red-100 shadow-sm" : state === "×" ? "bg-blue-500 text-white border-blue-100 shadow-sm" : "bg-gray-100 text-gray-300 border-gray-100"}`}>{state}</button>
                           ))}
                         </div>
                       </div>
@@ -597,10 +613,10 @@ export default function Home() {
             </div>
           )}
           <div className="grid grid-cols-2 gap-4 mb-4">
-            <button onClick={() => teamRounds.length > 1 && setTeamRounds(teamRounds.slice(0, -1))} className="py-4 bg-white border border-gray-200 text-gray-500 font-bold rounded-2xl">➖ 減らす</button>
-            <button onClick={() => setTeamRounds([...teamRounds, { id: teamRounds.length + 1, arrows: Array.from({ length: totalSize }, () => ["未", "未", "未", "未"]) }])} className="py-4 bg-gray-800 text-white font-bold rounded-2xl">➕ 立を追加</button>
+            <button onClick={() => teamRounds.length > 1 && setTeamRounds(teamRounds.slice(0, -1))} className="py-4 bg-white border border-gray-200 text-gray-500 font-bold rounded-2xl shadow-sm active:scale-95 transition-all">➖ 減らす</button>
+            <button onClick={() => setTeamRounds([...teamRounds, { id: teamRounds.length + 1, arrows: Array.from({ length: totalSize }, () => ["未", "未", "未", "未"]) }])} className="py-4 bg-gray-800 text-white font-bold rounded-2xl shadow-sm active:scale-95 transition-all">➕ 立を追加</button>
           </div>
-          <button onClick={saveTeam} disabled={isSaving || totalSize === 0} className="w-full py-5 bg-green-500 text-white text-xl font-bold rounded-2xl shadow-lg active:scale-95 disabled:opacity-50">💾 全員の記録を保存</button>
+          <button onClick={saveTeam} disabled={isSaving || totalSize === 0} className="w-full py-5 bg-gradient-to-r from-green-400 to-green-500 text-white text-xl font-black rounded-2xl shadow-[0_4px_14px_0_rgba(74,222,128,0.39)] hover:shadow-[0_6px_20px_rgba(74,222,128,0.23)] active:scale-95 transition-all disabled:opacity-50">💾 全員の記録を保存</button>
         </div>
       )}
 
@@ -710,7 +726,7 @@ export default function Home() {
               <div className="bg-white p-6 rounded-3xl border border-dashed border-gray-300 text-center">
                 <h3 className="text-sm font-bold text-gray-500 mb-4">🔐 今月の全順位（月的表） - 管理者用</h3>
                 <div className="flex gap-2 max-w-xs mx-auto">
-                  <input type="password" placeholder="パスワード" value={passInput} onChange={(e)=>setPassInput(e.target.value)} className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none" />
+                  <input type="password" placeholder="パスワード" value={passInput} onChange={(e)=>setPassInput(e.target.value)} className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-800 transition-all" />
                   <button onClick={() => { if(passInput===SECRET_PASSWORD){setIsUnlocked(true);setPassInput("");}else{alert("パスワードが違います");} }} className="bg-gray-800 text-white px-5 py-3 rounded-xl text-sm font-bold active:scale-95 transition-all">解除</button>
                 </div>
               </div>
@@ -756,22 +772,22 @@ export default function Home() {
             <div className="bg-white p-8 rounded-3xl border border-dashed border-gray-300 text-center mt-4">
               <h2 className="text-lg font-bold text-gray-700 mb-2">👤 メンバー登録 (管理者用)</h2>
               <div className="flex gap-2 max-w-xs mx-auto">
-                <input type="password" placeholder="パスワード" value={membersPassInput} onChange={(e)=>setMembersPassInput(e.target.value)} className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none" />
+                <input type="password" placeholder="パスワード" value={membersPassInput} onChange={(e)=>setMembersPassInput(e.target.value)} className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-800 transition-all" />
                 <button onClick={() => { if(membersPassInput===SECRET_PASSWORD){setIsMembersUnlocked(true);setMembersPassInput("");}else{alert("パスワードが違います");} }} className="bg-gray-800 text-white px-5 py-3 rounded-xl text-sm font-bold active:scale-95 transition-all">解除</button>
               </div>
             </div>
           ) : (
-            <div className="bg-white p-6 rounded-3xl border border-gray-200">
+            <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm">
               <div className="flex justify-between items-center mb-6 border-b border-gray-100 pb-4">
                 <h2 className="text-xl font-bold text-gray-800">👤 メンバー登録</h2>
-                <button onClick={() => setIsMembersUnlocked(false)} className="text-[10px] text-gray-400 font-bold border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50">ロックする</button>
+                <button onClick={() => setIsMembersUnlocked(false)} className="text-[10px] text-gray-400 font-bold border border-gray-200 px-3 py-1 rounded-full hover:bg-gray-50 transition-colors">ロックする</button>
               </div>
               <div className="space-y-4">
-                <select value={newArcherGrade} onChange={(e) => setNewArcherGrade(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-blue-600 outline-none">
+                <select value={newArcherGrade} onChange={(e) => setNewArcherGrade(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-blue-600 outline-none focus:ring-2 focus:ring-blue-300 transition-all">
                   {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
                 </select>
-                <input type="text" placeholder="名前" value={newArcherName} onChange={(e) => setNewArcherName(e.target.value)} className="w-full p-4 border border-gray-200 bg-gray-50 rounded-xl outline-none" />
-                <button onClick={handleAddArcher} className="w-full py-4 bg-blue-500 text-white font-bold rounded-xl active:scale-95 transition-transform">名簿に登録</button>
+                <input type="text" placeholder="名前" value={newArcherName} onChange={(e) => setNewArcherName(e.target.value)} className="w-full p-4 border border-gray-200 bg-gray-50 rounded-xl outline-none focus:ring-2 focus:ring-blue-300 transition-all" />
+                <button onClick={handleAddArcher} className="w-full py-4 bg-blue-500 text-white font-bold rounded-xl active:scale-95 shadow-md hover:bg-blue-600 transition-all">名簿に登録</button>
               </div>
             </div>
           )}
@@ -780,7 +796,7 @@ export default function Home() {
 
       {activeTab === "schedule" && (
         <div className="animate-fade-in space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-gray-200">
+          <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm">
             <h2 className="text-xl font-bold mb-4 text-gray-800">📅 今月の予定</h2>
             <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
               <img src="/schedule.jpg" alt="予定表" className="w-full h-auto" />
