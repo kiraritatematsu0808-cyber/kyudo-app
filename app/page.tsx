@@ -218,17 +218,24 @@ export default function Home() {
   };
 
   // ✨ システムを壊さない、正しいログアウト処理
+  // ✨ 究極の強制ログアウト（絶対にフリーズさせない）
   const handleLogout = async () => {
     if (!confirm("ログアウトしますか？")) return;
     
-    setAuthLoading(true); // まず幕を閉める（読み込み中）
+    setAuthLoading(true); // 画面をぐるぐるにする
+    
     try {
-      await supabase.auth.signOut(); // サーバーにログアウトを伝える
-    } catch (err) {
-      console.warn("ログアウト通信エラー", err);
+      // ① サーバーにログアウトを投げる（※ "await" を消して、返事は絶対に待たない！）
+      supabase.auth.signOut().catch(() => {});
+      
+      // ② ブラウザの金庫（LocalStorage）から、Supabaseの鍵を強制的に叩き割る
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('sb-')) {
+          localStorage.removeItem(key);
+        }
+      });
     } finally {
-      // ✨ 【超強力】問答無用で画面をリロード（再読み込み）する！
-      // これによりすべてのバグの元（古い記憶）が吹き飛び、綺麗なログイン画面に戻ります。
+      // ③ サーバーがどうなっていようと、問答無用で画面をリロード（初期化）する！
       window.location.reload();
     }
   };
