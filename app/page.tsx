@@ -221,15 +221,15 @@ export default function Home() {
   const handleLogout = async () => {
     if (!confirm("ログアウトしますか？")) return;
     
-    setAuthLoading(true);
+    setAuthLoading(true); // まず幕を閉める（読み込み中）
     try {
-      await supabase.auth.signOut();
+      await supabase.auth.signOut(); // サーバーにログアウトを伝える
     } catch (err) {
-      console.warn("ログアウト通信でエラーが起きました（無視して画面を戻します）", err);
+      console.warn("ログアウト通信エラー", err);
     } finally {
-      setUser(null);
-      setLinkedArcher(null);
-      setAuthLoading(false);
+      // ✨ 【超強力】問答無用で画面をリロード（再読み込み）する！
+      // これによりすべてのバグの元（古い記憶）が吹き飛び、綺麗なログイン画面に戻ります。
+      window.location.reload();
     }
   };
 
