@@ -17,10 +17,10 @@ const getPositionName = (index: number, total: number) => {
   return ["二的", "三的", "四的", "五的"][index - 1] || `${index + 1}番`;
 };
 
-// 💡 【新機能】通信が無限に固まるのを防ぐ「10秒の命綱（タイムアウト）」
-const withTimeout = <T,>(promise: Promise<T>, ms: number) => {
+// 💡 【修正版】TypeScriptの風紀委員に怒られないタイムアウト関数
+const withTimeout = (promise: any, ms: number): Promise<any> => {
   let timeoutId: any;
-  const timeoutPromise = new Promise<never>((_, reject) => {
+  const timeoutPromise = new Promise((_, reject) => {
     timeoutId = setTimeout(() => reject(new Error("通信がタイムアウトしました。電波の良いところで再度お試しください。")), ms);
   });
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
@@ -143,12 +143,11 @@ export default function Home() {
     };
   }, []);
 
-  // 💡 【修正版】寝起きバグ回避：タブを切り替えた瞬間に「最新のパス」をもらってから同期する
+  // 💡 タブを切り替えた瞬間に最新データを同期する「連絡網」
   useEffect(() => {
     const handleSync = async () => {
       if (document.visibilityState === "visible") {
         try {
-          // 寝起きダッシュをやめて、まずは最新の入場パス（Session）をもらい直す！
           const { data } = await supabase.auth.getSession();
           if (data?.session?.user) {
             checkLinkedArcher(data.session.user.id);
@@ -230,20 +229,16 @@ export default function Home() {
   // ✨ 究極の強制ログアウト（絶対にフリーズさせない）
   const handleLogout = async () => {
     if (!confirm("ログアウトしますか？")) return;
-    setAuthLoading(true); // 画面をぐるぐるにする
+    setAuthLoading(true);
     
     try {
-      // サーバーにログアウトを投げる（返事は待たない）
       supabase.auth.signOut().catch(() => {});
-      
-      // ブラウザの金庫（LocalStorage）から、記憶を強制的に叩き割る
       Object.keys(localStorage).forEach(key => {
         if (key.startsWith('sb-')) {
           localStorage.removeItem(key);
         }
       });
     } finally {
-      // サーバーがどうなっていようと、問答無用で画面をリロード（初期化）！
       window.location.reload();
     }
   };
@@ -281,13 +276,11 @@ export default function Home() {
     }));
   };
 
-  // 💡 【修正版】電波が悪くても絶対に固まらない個人の保存ボタン
   const saveIndividual = async () => {
     if (!linkedArcher) return;
     setIsSaving(true);
     try {
       const insertPromise = supabase.from("practice_sessions").insert([{ archer_name: linkedArcher.name, records: indRecords, practice_type: indPracticeType }]);
-      // 10秒待ってダメならエラーを出す！
       const { error } = await withTimeout(insertPromise, 10000); 
       if (error) throw error;
       alert(`🎉 ${linkedArcher.name}さんの記録を保存しました！`);
@@ -299,7 +292,6 @@ export default function Home() {
     }
   };
 
-  // 💡 【修正版】電波が悪くても絶対に固まらない団体の保存ボタン
   const saveTeam = async () => {
     if (totalSize === 0) return;
     if (teamMembers.some(m => !m.name)) { alert("全員の名前を選択してください！"); return; }
@@ -310,7 +302,6 @@ export default function Home() {
         return { archer_name: m.name, records: personRecords, practice_type: "立" };
       });
       const insertPromise = supabase.from("practice_sessions").insert(inserts);
-      // 10秒待ってダメならエラーを出す！
       const { error } = await withTimeout(insertPromise, 10000);
       if (error) throw error;
       alert(`🎉 団体の記録を保存しました！`);
