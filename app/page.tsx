@@ -17,6 +17,15 @@ const getPositionName = (index: number, total: number) => {
   return ["二的", "三的", "四的", "五的"][index - 1] || `${index + 1}番`;
 };
 
+// 💡 【新機能】通信が無限に固まるのを防ぐ「10秒の命綱（タイムアウト）」
+const withTimeout = <T,>(promise: Promise<T>, ms: number) => {
+  let timeoutId: any;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error("通信がタイムアウトしました。電波の良いところで再度お試しください。")), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+};
+
 export default function Home() {
   // 🔐 認証ステート
   const [user, setUser] = useState<any>(null);
@@ -86,7 +95,6 @@ export default function Home() {
         
         const sessionUser = data?.session?.user || null;
         if (isMounted) {
-          // 💡 初回ロード時：幕を閉じたままデータを待つ
           if (sessionUser) {
             setUser(sessionUser);
             await checkLinkedArcher(sessionUser.id);
@@ -104,7 +112,6 @@ export default function Home() {
     initAuth();
     fetchArchers();
 
-    // 💡 複数タブ時の「すれ違いバグ」を完全に殺す処理
     let subscription: any = null;
     try {
       const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -112,8 +119,6 @@ export default function Home() {
         const sessionUser = session?.user || null;
         
         if (sessionUser) {
-          // ✨ 【超重要】役者が来たら、まずは「絶対に幕（Loading）を閉める」！
-          // これがないと、衣装（名簿データ）が届く前にエラー画面が丸見えになってしまいます。
           setAuthLoading(true); 
           setUser(sessionUser);
           await checkLinkedArcher(sessionUser.id);
@@ -138,13 +143,20 @@ export default function Home() {
     };
   }, []);
 
-  // 💡 タブを切り替えた瞬間に最新データを同期する「連絡網」
+  // 💡 【修正版】寝起きバグ回避：タブを切り替えた瞬間に「最新のパス」をもらってから同期する
   useEffect(() => {
-    const handleSync = () => {
-      // 画面が表示された瞬間、裏側でこっそり最新データを取ってくる
-      if (document.visibilityState === "visible" && user) {
-        checkLinkedArcher(user.id);
-        fetchArchers();
+    const handleSync = async () => {
+      if (document.visibilityState === "visible") {
+        try {
+          // 寝起きダッシュをやめて、まずは最新の入場パス（Session）をもらい直す！
+          const { data } = await supabase.auth.getSession();
+          if (data?.session?.user) {
+            checkLinkedArcher(data.session.user.id);
+            fetchArchers();
+          }
+        } catch (err) {
+          console.error("寝起きの同期エラー:", err);
+        }
       }
     };
 
@@ -155,7 +167,7 @@ export default function Home() {
       window.removeEventListener("visibilitychange", handleSync);
       window.removeEventListener("focus", handleSync);
     };
-  }, [user]);
+  }, []);
 
   const checkLinkedArcher = async (userId: string) => {
     try {
@@ -165,7 +177,6 @@ export default function Home() {
     } catch (err) {
       console.error("名簿連携確認エラー:", err);
     } finally {
-      // ✨ 衣装（名簿データ）が完全に準備できたら、ここで初めて幕を開ける！
       setAuthLoading(false);
     }
   };
@@ -201,7 +212,6 @@ export default function Home() {
       if (isLoginMode) {
         const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
         if (error) throw error;
-        // ログイン成功後は onAuthStateChange が感知して自動で進みます
       } else {
         const { data, error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
         if (error) throw error;
@@ -217,25 +227,23 @@ export default function Home() {
     } 
   };
 
-  // ✨ システムを壊さない、正しいログアウト処理
   // ✨ 究極の強制ログアウト（絶対にフリーズさせない）
   const handleLogout = async () => {
     if (!confirm("ログアウトしますか？")) return;
-    
     setAuthLoading(true); // 画面をぐるぐるにする
     
     try {
-      // ① サーバーにログアウトを投げる（※ "await" を消して、返事は絶対に待たない！）
+      // サーバーにログアウトを投げる（返事は待たない）
       supabase.auth.signOut().catch(() => {});
       
-      // ② ブラウザの金庫（LocalStorage）から、Supabaseの鍵を強制的に叩き割る
+      // ブラウザの金庫（LocalStorage）から、記憶を強制的に叩き割る
       Object.keys(localStorage).forEach(key => {
         if (key.startsWith('sb-')) {
           localStorage.removeItem(key);
         }
       });
     } finally {
-      // ③ サーバーがどうなっていようと、問答無用で画面をリロード（初期化）する！
+      // サーバーがどうなっていようと、問答無用で画面をリロード（初期化）！
       window.location.reload();
     }
   };
@@ -273,17 +281,25 @@ export default function Home() {
     }));
   };
 
+  // 💡 【修正版】電波が悪くても絶対に固まらない個人の保存ボタン
   const saveIndividual = async () => {
     if (!linkedArcher) return;
     setIsSaving(true);
     try {
-      const { error } = await supabase.from("practice_sessions").insert([{ archer_name: linkedArcher.name, records: indRecords, practice_type: indPracticeType }]);
+      const insertPromise = supabase.from("practice_sessions").insert([{ archer_name: linkedArcher.name, records: indRecords, practice_type: indPracticeType }]);
+      // 10秒待ってダメならエラーを出す！
+      const { error } = await withTimeout(insertPromise, 10000); 
       if (error) throw error;
       alert(`🎉 ${linkedArcher.name}さんの記録を保存しました！`);
       setIndRecords([{ id: 1, arrows: ["未", "未", "未", "未"] }]);
-    } catch (err: any) { alert("保存エラー: " + err.message); } finally { setIsSaving(false); }
+    } catch (err: any) { 
+      alert("保存エラー: " + err.message); 
+    } finally { 
+      setIsSaving(false); 
+    }
   };
 
+  // 💡 【修正版】電波が悪くても絶対に固まらない団体の保存ボタン
   const saveTeam = async () => {
     if (totalSize === 0) return;
     if (teamMembers.some(m => !m.name)) { alert("全員の名前を選択してください！"); return; }
@@ -293,11 +309,17 @@ export default function Home() {
         const personRecords = teamRounds.map(r => ({ id: r.id, arrows: r.arrows[mIndex] }));
         return { archer_name: m.name, records: personRecords, practice_type: "立" };
       });
-      const { error } = await supabase.from("practice_sessions").insert(inserts);
+      const insertPromise = supabase.from("practice_sessions").insert(inserts);
+      // 10秒待ってダメならエラーを出す！
+      const { error } = await withTimeout(insertPromise, 10000);
       if (error) throw error;
       alert(`🎉 団体の記録を保存しました！`);
       setTeamRounds([{ id: 1, arrows: Array.from({ length: totalSize }, () => ["未", "未", "未", "未"]) }]);
-    } catch (err: any) { alert("保存エラー: " + err.message); } finally { setIsSaving(false); }
+    } catch (err: any) { 
+      alert("保存エラー: " + err.message); 
+    } finally { 
+      setIsSaving(false); 
+    }
   };
 
   const handleAddArcher = async () => {
@@ -435,7 +457,7 @@ export default function Home() {
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6 text-center">
       <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4 mx-auto"></div>
       <p className="text-blue-500 font-bold animate-pulse text-sm">システムを確認中...</p>
-      <p className="text-[10px] text-gray-400 mt-4">※5秒後に自動的に画面が切り替わります</p>
+      <p className="text-[10px] text-gray-400 mt-4">※通信を安全に処理しています</p>
     </div>
   );
 
