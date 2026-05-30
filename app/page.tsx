@@ -7,6 +7,14 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 const GRADES = ["中1", "中2", "中3", "高1", "高2", "高3", "OB/OG", "先生"];
 const PRACTICE_TYPES = ["自練", "射込み", "立"];
 const SECRET_PASSWORD = "1234";
+type AnalysisTimeframe = "all" | "month" | "current_month" | "current_week";
+
+const ANALYSIS_TIMEFRAMES: { value: AnalysisTimeframe; label: string }[] = [
+  { value: "all", label: "全期間" },
+  { value: "month", label: "月ごと" },
+  { value: "current_month", label: "今月" },
+  { value: "current_week", label: "今週" },
+];
 
 const getPositionName = (index: number, total: number) => {
   if (total === 1) return "大前";
@@ -24,6 +32,14 @@ const withTimeout = (promise: any, ms: number): Promise<any> => {
     timeoutId = setTimeout(() => reject(new Error("通信がタイムアウトしました。電波の良いところで再度お試しください。")), ms);
   });
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+};
+
+const getStartOfWeek = (date: Date) => {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = start.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diff);
+  return start;
 };
 
 export default function Home() {
@@ -55,8 +71,7 @@ export default function Home() {
   const [teamRounds, setTeamRounds] = useState([{ id: 1, arrows: Array.from({ length: 6 }, () => ["未", "未", "未", "未"]) }]);
 
   // 📊 分析タブ
-  const [anaTimeframe, setAnaTimeframe] = useState<"all" | "year" | "month" | "week" | "custom_month">("all");
-  const [anaCustomMonth, setAnaCustomMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [anaTimeframe, setAnaTimeframe] = useState<AnalysisTimeframe>("all");
   const [anaType, setAnaType] = useState<"all" | "tachi">("all");
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
   const [analysisData, setAnalysisData] = useState<{ hits: number; total: number; sessionsCount: number }>({ hits: 0, total: 0, sessionsCount: 0 });
@@ -193,7 +208,7 @@ export default function Home() {
   useEffect(() => { 
     if (activeTab === "analysis" && linkedArcher) fetchAnalysisData();
     if (activeTab === "rankings") fetchRankingData(); 
-  }, [activeTab, linkedArcher, anaTimeframe, anaCustomMonth, anaType]);
+  }, [activeTab, linkedArcher, anaTimeframe, anaType]);
 
   const handleMenuSwitch = (menu: "input" | "data" | "others") => {
     setMainMenu(menu);
@@ -327,28 +342,29 @@ export default function Home() {
       const { data, error } = await supabase.from("practice_sessions").select("*").eq("archer_name", linkedArcher.name);
       if (error) throw error;
       let hits = 0; let total = 0;
-      let newArrowStats = [{ hits: 0, total: 0 }, { hits: 0, total: 0 }, { hits: 0, total: 0 }, { hits: 0, total: 0 }];
-      let chartGroups: { [key: string]: { display: string; hits: number; total: number } } = {};
+      const newArrowStats = [{ hits: 0, total: 0 }, { hits: 0, total: 0 }, { hits: 0, total: 0 }, { hits: 0, total: 0 }];
+      const chartGroups: { [key: string]: { display: string; hits: number; total: number } } = {};
       let kaichu = 0, sanchu = 0, nichu = 0, itchu = 0, zannen = 0;
       const now = new Date();
+      const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const startOfThisWeek = getStartOfWeek(now);
+      const startOfNextWeek = new Date(startOfThisWeek);
+      startOfNextWeek.setDate(startOfThisWeek.getDate() + 7);
+      const shouldUseDailyChart = anaTimeframe === "current_month" || anaTimeframe === "current_week";
 
       const filteredData = (data || []).filter(session => {
         const d = new Date(session.created_at);
         if (anaType === "tachi" && session.practice_type !== "立") return false;
-        if (anaTimeframe === "year") return d.getFullYear() === now.getFullYear();
-        if (anaTimeframe === "month") return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-        if (anaTimeframe === "week") return d >= new Date(now.setDate(now.getDate() - 7));
-        if (anaTimeframe === "custom_month") {
-          const [year, month] = anaCustomMonth.split("-");
-          return d.getFullYear() === parseInt(year) && d.getMonth() === parseInt(month) - 1;
-        }
+        if (anaTimeframe === "current_month") return d >= startOfThisMonth && d < startOfNextMonth;
+        if (anaTimeframe === "current_week") return d >= startOfThisWeek && d < startOfNextWeek;
         return true;
       });
 
       filteredData.forEach(session => {
         const d = new Date(session.created_at);
-        const sortKey = anaTimeframe === "all" ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        const displayKey = anaTimeframe === "all" ? `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}` : `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+        const sortKey = shouldUseDailyChart ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const displayKey = shouldUseDailyChart ? `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}` : `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
         if (!chartGroups[sortKey]) chartGroups[sortKey] = { display: displayKey, hits: 0, total: 0 };
 
         session.records.forEach((record: any) => {
@@ -684,8 +700,8 @@ export default function Home() {
               <div className="bg-gray-800 p-4 text-white">
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-wrap bg-gray-700 rounded-lg p-1 gap-1">
-                    {["all", "year", "month", "week", "custom_month"].map(t => (
-                      <button key={t} onClick={() => setAnaTimeframe(t as any)} className={`flex-1 min-w-[50px] text-[10px] py-2 rounded-md font-bold transition-all ${anaTimeframe === t ? "bg-blue-500 shadow" : "text-gray-400"}`}>{t === "all" ? "全" : t === "year" ? "年" : t === "month" ? "月" : t === "week" ? "週" : "指定"}</button>
+                    {ANALYSIS_TIMEFRAMES.map(t => (
+                      <button key={t.value} onClick={() => setAnaTimeframe(t.value)} className={`flex-1 min-w-[62px] text-[10px] py-2 rounded-md font-bold transition-all ${anaTimeframe === t.value ? "bg-blue-500 shadow" : "text-gray-400"}`}>{t.label}</button>
                     ))}
                   </div>
                   <div className="flex bg-gray-700 rounded-lg p-1">
