@@ -46,6 +46,7 @@ export default function Home() {
   // 🔐 認証ステート
   const [user, setUser] = useState<any>(null);
   const [linkedArcher, setLinkedArcher] = useState<any>(null);
+  const [hasCheckedLinkedArcher, setHasCheckedLinkedArcher] = useState(false);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [isLoginMode, setIsLoginMode] = useState(true);
@@ -115,6 +116,8 @@ export default function Home() {
             await checkLinkedArcher(sessionUser.id);
           } else {
             setUser(null);
+            setLinkedArcher(null);
+            setHasCheckedLinkedArcher(false);
             setAuthLoading(false);
           }
         }
@@ -140,6 +143,7 @@ export default function Home() {
         } else {
           setUser(null);
           setLinkedArcher(null);
+          setHasCheckedLinkedArcher(false);
           setAuthLoading(false);
         }
       });
@@ -165,7 +169,7 @@ export default function Home() {
         try {
           const { data } = await supabase.auth.getSession();
           if (data?.session?.user) {
-            checkLinkedArcher(data.session.user.id);
+            checkLinkedArcher(data.session.user.id, { showChecking: false, clearOnError: false });
             fetchArchers();
           }
         } catch (err) {
@@ -183,14 +187,18 @@ export default function Home() {
     };
   }, []);
 
-  const checkLinkedArcher = async (userId: string) => {
+  const checkLinkedArcher = async (userId: string, options: { showChecking?: boolean; clearOnError?: boolean } = {}) => {
+    const { showChecking = true, clearOnError = true } = options;
+    if (showChecking) setHasCheckedLinkedArcher(false);
     try {
       const { data, error } = await supabase.from("archers").select("*").eq("user_id", userId).limit(1);
       if (error) throw error;
       setLinkedArcher(data && data.length > 0 ? data[0] : null);
     } catch (err) {
       console.error("名簿連携確認エラー:", err);
+      if (clearOnError) setLinkedArcher(null);
     } finally {
+      setHasCheckedLinkedArcher(true);
       setAuthLoading(false);
     }
   };
@@ -510,8 +518,16 @@ export default function Home() {
     );
   }
 
+  if (user && !hasCheckedLinkedArcher) return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6 text-center">
+      <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4 mx-auto"></div>
+      <p className="text-blue-500 font-bold animate-pulse text-sm">名簿との連携を確認中...</p>
+      <p className="text-[10px] text-gray-400 mt-4">※リロード直後は少しだけ時間がかかることがあります</p>
+    </div>
+  );
+
   // 2. 万が一のデータエラー画面
-  if (user && !linkedArcher) {
+  if (user && hasCheckedLinkedArcher && !linkedArcher) {
     return (
       <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50 text-center">
         <div className="bg-white p-8 rounded-3xl shadow-lg border border-red-100">
