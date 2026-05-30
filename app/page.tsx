@@ -96,6 +96,14 @@ export default function Home() {
   // ========== 🔄 ログイン状態の監視 ==========
   useEffect(() => {
     let isMounted = true;
+    const authCheckTimers: ReturnType<typeof setTimeout>[] = [];
+
+    const scheduleLinkedArcherCheck = (userId: string) => {
+      const timer = setTimeout(() => {
+        if (isMounted) checkLinkedArcher(userId);
+      }, 0);
+      authCheckTimers.push(timer);
+    };
 
     // 🚨 安全装置（5秒タイマー）
     const emergencyTimer = setTimeout(() => {
@@ -134,14 +142,14 @@ export default function Home() {
 
     let subscription: any = null;
     try {
-      const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
         if (!isMounted) return;
         const sessionUser = session?.user || null;
         
         if (sessionUser) {
           setAuthLoading(true); 
           setUser(sessionUser);
-          await checkLinkedArcher(sessionUser.id);
+          scheduleLinkedArcherCheck(sessionUser.id);
         } else {
           setUser(null);
           setLinkedArcher(null);
@@ -159,6 +167,7 @@ export default function Home() {
     return () => {
       isMounted = false;
       clearTimeout(emergencyTimer);
+      authCheckTimers.forEach(clearTimeout);
       if (subscription && typeof subscription.unsubscribe === 'function') {
         subscription.unsubscribe();
       }
