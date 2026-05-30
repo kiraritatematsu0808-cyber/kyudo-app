@@ -47,6 +47,7 @@ export default function Home() {
   const [user, setUser] = useState<any>(null);
   const [linkedArcher, setLinkedArcher] = useState<any>(null);
   const [hasCheckedLinkedArcher, setHasCheckedLinkedArcher] = useState(false);
+  const [linkedArcherError, setLinkedArcherError] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [isLoginMode, setIsLoginMode] = useState(true);
@@ -118,6 +119,7 @@ export default function Home() {
             setUser(null);
             setLinkedArcher(null);
             setHasCheckedLinkedArcher(false);
+            setLinkedArcherError("");
             setAuthLoading(false);
           }
         }
@@ -144,6 +146,7 @@ export default function Home() {
           setUser(null);
           setLinkedArcher(null);
           setHasCheckedLinkedArcher(false);
+          setLinkedArcherError("");
           setAuthLoading(false);
         }
       });
@@ -190,13 +193,18 @@ export default function Home() {
   const checkLinkedArcher = async (userId: string, options: { showChecking?: boolean; clearOnError?: boolean } = {}) => {
     const { showChecking = true, clearOnError = true } = options;
     if (showChecking) setHasCheckedLinkedArcher(false);
+    if (clearOnError) setLinkedArcherError("");
     try {
-      const { data, error } = await supabase.from("archers").select("*").eq("user_id", userId).limit(1);
+      const query = supabase.from("archers").select("*").eq("user_id", userId).maybeSingle();
+      const { data, error } = await withTimeout(query, 8000);
       if (error) throw error;
-      setLinkedArcher(data && data.length > 0 ? data[0] : null);
+      setLinkedArcher(data || null);
     } catch (err) {
       console.error("名簿連携確認エラー:", err);
-      if (clearOnError) setLinkedArcher(null);
+      if (clearOnError) {
+        setLinkedArcher(null);
+        setLinkedArcherError(err instanceof Error ? err.message : "名簿との連携確認に失敗しました。");
+      }
     } finally {
       setHasCheckedLinkedArcher(true);
       setAuthLoading(false);
@@ -524,6 +532,23 @@ export default function Home() {
       <p className="text-blue-500 font-bold animate-pulse text-sm">名簿との連携を確認中...</p>
       <p className="text-[10px] text-gray-400 mt-4">※リロード直後は少しだけ時間がかかることがあります</p>
     </div>
+  );
+
+  if (user && hasCheckedLinkedArcher && linkedArcherError) return (
+    <main className="p-6 max-w-sm mx-auto min-h-screen flex flex-col justify-center bg-gray-50 text-center">
+      <div className="bg-white p-8 rounded-3xl shadow-lg border border-yellow-100">
+        <span className="text-4xl block mb-4">⚠️</span>
+        <h2 className="text-lg font-black text-gray-800 mb-2">名簿確認に失敗しました</h2>
+        <p className="text-xs text-gray-500 mb-2 font-bold">通信が混み合っているか、名簿データの取得に時間がかかっています。</p>
+        <p className="text-[10px] text-gray-400 mb-6 break-words">{linkedArcherError}</p>
+        <button onClick={() => checkLinkedArcher(user.id)} className="w-full py-4 bg-blue-500 text-white font-bold rounded-xl shadow-md active:scale-95 transition-all mb-3">
+          もう一度確認する
+        </button>
+        <button onClick={handleLogout} className="w-full py-3 bg-gray-100 text-gray-500 font-bold rounded-xl active:scale-95 transition-all">
+          ログアウトして戻る
+        </button>
+      </div>
+    </main>
   );
 
   // 2. 万が一のデータエラー画面
